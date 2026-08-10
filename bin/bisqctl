@@ -1,0 +1,11 @@
+#!/bin/bash
+set -euo pipefail
+
+password_file="$HOME/.config/bisq/daemon.env"
+if [[ ! -r "$password_file" ]]; then
+    echo "Arquivo de credenciais não encontrado: $password_file" >&2
+    exit 1
+fi
+
+source "$password_file"
+exec /usr/bin/bisq-cli --host=127.0.0.1 --port="${BISQ_API_PORT:-9998}" --password="$BISQ_API_PASSWORD" "$@"

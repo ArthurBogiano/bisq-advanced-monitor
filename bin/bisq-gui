@@ -1,0 +1,20 @@
+#!/bin/bash
+set -u
+
+unit=bisq-daemon.service
+daemon_was_active=false
+if systemctl --user is-active --quiet "$unit"; then
+    daemon_was_active=true
+    systemctl --user stop "$unit" || exit 1
+fi
+
+restart_daemon() {
+    if [[ "$daemon_was_active" == true ]]; then
+        systemctl --user start "$unit"
+    fi
+}
+trap restart_daemon EXIT HUP INT TERM
+
+/usr/bin/bisq-desktop --appDataDir="$HOME/.local/share/Bisq" "$@"
+status=$?
+exit "$status"

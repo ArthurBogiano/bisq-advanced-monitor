@@ -1,0 +1,20 @@
+[Unit]
+Description=Monitor de ofertas Bisq com alertas no Telegram
+After=network-online.target bisq-daemon.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/bisq-monitor/telegram.env
+Environment=MONITOR_INTERVAL=60
+ExecStart=/usr/bin/python3 %h/.local/bin/bisq-offer-monitor.py
+Restart=always
+RestartSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.local/state/bisq-monitor
+
+[Install]
+WantedBy=default.target
