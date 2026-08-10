@@ -11,6 +11,7 @@ Monitor headless para ofertas da Bisq 1 com painel de terminal e alertas no Tele
 - histórico local dos últimos 100 eventos;
 - alertas no Telegram para aceite, remoção, pausa e reativação;
 - alertas de falha e recuperação do daemon/API e sincronização DAO;
+- falhas transitórias de cotação ficam somente no painel, evitando spam no Telegram;
 - serviços systemd de usuário com reinício automático e inicialização no login;
 - credenciais mantidas fora do repositório.
 

@@ -51,7 +51,10 @@ def daemon_password():
 def cli(method, *args, timeout=25):
     command = [CLI, "--host=127.0.0.1", f"--port={API_PORT}",
                f"--password={daemon_password()}", method, *args]
-    result = subprocess.run(command, text=True, capture_output=True, timeout=timeout)
+    try:
+        result = subprocess.run(command, text=True, capture_output=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(f"{method} excedeu o limite de {timeout}s") from None
     output = "\n".join(
         line for line in (result.stdout + "\n" + result.stderr).splitlines()
         if not line.startswith(("Aug ", "INFO:"))
@@ -80,15 +83,27 @@ def send(state, text):
     return True
 
 
-def emit(state, kind, title, detail, telegram_text):
+def emit(state, kind, title, detail, telegram_text=None):
     events = state.setdefault("events", [])
     events.append({"time": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
                    "kind": kind, "title": title, "detail": detail})
     del events[:-100]
+    if telegram_text:
+        try:
+            send(state, telegram_text)
+        except Exception as exc:
+            LOG.error("Falha ao enviar alerta ao Telegram: %s", exc)
+
+
+def sanitize_state(state):
     try:
-        send(state, telegram_text)
-    except Exception as exc:
-        LOG.error("Falha ao enviar alerta ao Telegram: %s", exc)
+        password = daemon_password()
+    except Exception:
+        return
+    for event in state.get("events", []):
+        event["detail"] = str(event.get("detail", "")).replace(password, "<redacted>")
+    if state.get("last_error"):
+        state["last_error"] = str(state["last_error"]).replace(password, "<redacted>")
 
 
 def currencies():
@@ -165,13 +180,25 @@ def check_once(state):
     try:
         dao_synced = cli("getdaostatus").strip().lower() == "true"
         offers = collect_offers()
-        market_prices = collect_market_prices()
         healthy = True
         error = None
     except Exception as exc:
-        dao_synced, offers, market_prices, healthy, error = (False, state.get("offers", {}),
-                                                              state.get("market_prices", {}),
-                                                              False, str(exc))
+        dao_synced, offers, healthy, error = (False, state.get("offers", {}),
+                                               False, str(exc))
+
+    try:
+        market_prices = collect_market_prices()
+        price_error = None
+    except Exception as exc:
+        market_prices = state.get("market_prices", {})
+        price_error = str(exc)
+
+    previous_price_error = state.get("price_error")
+    if price_error and not previous_price_error:
+        emit(state, "warning", "COTAÇÃO TEMPORARIAMENTE INDISPONÍVEL", price_error)
+    elif previous_price_error and not price_error:
+        emit(state, "recovered", "COTAÇÃO RECUPERADA",
+             "BTC/BRL e BTC/EUR voltaram a responder.")
 
     previous_health = state.get("healthy")
     if previous_health is True and not healthy:
@@ -211,6 +238,7 @@ def check_once(state):
 
     state.update({"offers": offers, "healthy": healthy,
                   "market_prices": market_prices,
+                  "price_error": price_error,
                   "dao_synced": dao_synced, "initialized": state.get("initialized") or healthy,
                   "last_check": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
                   "last_error": error})
@@ -220,6 +248,7 @@ def check_once(state):
 def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     state = load_state()
+    sanitize_state(state)
     LOG.info("Monitor iniciado; intervalo=%ss; chat_id=%s", INTERVAL, CHAT_ID)
     while True:
         try:
