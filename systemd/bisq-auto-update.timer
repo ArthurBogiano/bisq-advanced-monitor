@@ -1,0 +1,11 @@
+[Unit]
+Description=Verificação diária de atualizações da Bisq
+
+[Timer]
+OnCalendar=*-*-* 06:00:00
+RandomizedDelaySec=30min
+Persistent=true
+Unit=bisq-auto-update.service
+
+[Install]
+WantedBy=timers.target

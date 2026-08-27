@@ -1,0 +1,135 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+readonly BISQ_USER="${BISQ_USER:-bisq}"
+readonly USER_ID="$(id -u "$BISQ_USER")"
+readonly USER_HOME="$(getent passwd "$BISQ_USER" | cut -d: -f6)"
+readonly RUNTIME_DIR="/run/user/$USER_ID"
+readonly TELEGRAM_ENV="$USER_HOME/.config/bisq-monitor/telegram.env"
+readonly DAEMON_ENV="$USER_HOME/.config/bisq/daemon.env"
+readonly LOCK_FILE="/run/lock/bisq-auto-update.lock"
+readonly PACKAGES=(bisq-cli bisq-daemon bisq-desktop)
+
+mode="update"
+[[ "${1:-}" == "--check" ]] && mode="check"
+[[ "${1:-}" == "--notify-test" ]] && mode="notify-test"
+
+exec 9>"$LOCK_FILE"
+flock -n 9 || exit 0
+
+telegram_token=""
+telegram_chat_id=""
+services_stopped=false
+old_versions=""
+
+load_config() {
+    if [[ -r "$TELEGRAM_ENV" ]]; then
+        # O arquivo pertence ao usuário monitorado. Faça parsing como dados;
+        # nunca execute seu conteúdo dentro deste serviço root.
+        telegram_token="$(sed -n 's/^TELEGRAM_BOT_TOKEN=//p' "$TELEGRAM_ENV" | head -n1)"
+        telegram_chat_id="$(sed -n 's/^TELEGRAM_CHAT_ID=//p' "$TELEGRAM_ENV" | head -n1)"
+    fi
+}
+
+notify() {
+    local message=$1
+    [[ -n "$telegram_token" && -n "$telegram_chat_id" ]] || return 0
+    curl --fail --silent --show-error --max-time 20 \
+        --request POST "https://api.telegram.org/bot${telegram_token}/sendMessage" \
+        --data-urlencode "chat_id=${telegram_chat_id}" \
+        --data-urlencode "text=${message}" >/dev/null || true
+}
+
+user_systemctl() {
+    runuser -u "$BISQ_USER" -- env \
+        XDG_RUNTIME_DIR="$RUNTIME_DIR" \
+        DBUS_SESSION_BUS_ADDRESS="unix:path=$RUNTIME_DIR/bus" \
+        systemctl --user "$@"
+}
+
+versions() {
+    pacman -Q "${PACKAGES[@]}" 2>/dev/null | tr '\n' ';' | sed 's/;$/ /'
+}
+
+on_exit() {
+    local status=$?
+    if [[ "$services_stopped" == true ]]; then
+        user_systemctl start bisq-daemon.service || true
+        user_systemctl start bisq-offer-monitor.service || true
+    fi
+    if (( status != 0 )); then
+        notify "🚨 FALHA NA ATUALIZAÇÃO DA BISQ
+Rotina encerrada com código ${status}. Os serviços foram religados quando possível.
+Verifique: journalctl -u bisq-auto-update.service"
+    fi
+    exit "$status"
+}
+trap on_exit EXIT
+
+load_config
+old_versions="$(versions)"
+
+if [[ "$mode" == "notify-test" ]]; then
+    notify "🧪 TESTE DO ATUALIZADOR BISQ
+Timer, credenciais e comunicação com o Telegram estão funcionando.
+Versões instaladas: ${old_versions}"
+    exit 0
+fi
+
+set +e
+updates="$(checkupdates 2>&1)"
+check_status=$?
+set -e
+if (( check_status == 2 )); then
+    exit 0
+elif (( check_status != 0 )); then
+    printf '%s\n' "$updates" >&2
+    exit "$check_status"
+fi
+
+bisq_updates="$(printf '%s\n' "$updates" | grep -E '^(bisq-cli|bisq-daemon|bisq-desktop) ' || true)"
+[[ -n "$bisq_updates" ]] || exit 0
+
+if [[ "$mode" == "check" ]]; then
+    printf '%s\n' "$bisq_updates"
+    exit 0
+fi
+
+notify "⬆️ ATUALIZAÇÃO DA BISQ INICIADA
+Versões atuais: ${old_versions}
+Pacotes disponíveis:
+${bisq_updates}"
+
+services_stopped=true
+user_systemctl stop bisq-offer-monitor.service
+user_systemctl stop bisq-daemon.service
+
+# Arch Linux não suporta atualizações parciais: sincroniza e atualiza o sistema
+# como um conjunto coerente quando uma nova versão da Bisq é encontrada.
+pacman -Syu --noconfirm
+
+user_systemctl daemon-reload
+user_systemctl start bisq-daemon.service
+user_systemctl start bisq-offer-monitor.service
+services_stopped=false
+
+api_password="$(sed -n 's/^BISQ_API_PASSWORD=//p' "$DAEMON_ENV" | head -n1)"
+api_port="$(sed -n 's/^BISQ_API_PORT=//p' "$DAEMON_ENV" | head -n1)"
+api_port="${api_port:-9998}"
+healthy=false
+for _ in $(seq 1 36); do
+    if runuser -u "$BISQ_USER" -- /usr/bin/bisq-cli \
+        --host=127.0.0.1 --port="$api_port" --password="$api_password" \
+        getversion >/dev/null 2>&1; then
+        healthy=true
+        break
+    fi
+    sleep 5
+done
+[[ "$healthy" == true ]]
+
+new_versions="$(versions)"
+notify "✅ BISQ ATUALIZADA COM SUCESSO
+Antes: ${old_versions}
+Agora: ${new_versions}
+Daemon, API e monitor estão ativos."

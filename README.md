@@ -13,6 +13,7 @@ Monitor headless para ofertas da Bisq 1 com painel de terminal e alertas no Tele
 - alertas de falha e recuperação do daemon/API e sincronização DAO;
 - falhas transitórias de cotação ficam somente no painel, evitando spam no Telegram;
 - serviços systemd de usuário com reinício automático e inicialização no login;
+- atualização automática diária dos pacotes Bisq, com validação e alertas no Telegram;
 - credenciais mantidas fora do repositório.
 
 ## Requisitos
@@ -50,6 +51,38 @@ Proteja os arquivos e inicie os serviços:
 ```bash
 chmod 600 ~/.config/bisq/daemon.env ~/.config/bisq-monitor/telegram.env
 systemctl --user start bisq-daemon.service bisq-offer-monitor.service
+```
+
+Instale também a rotina de atualização do sistema:
+
+```bash
+sudo pacman -S --needed pacman-contrib
+sudo ./install-updater.sh
+```
+
+A rotina verifica diariamente, entre 06:00 e 06:30, se há novas versões de
+`bisq-cli`, `bisq-daemon` ou `bisq-desktop`. Quando encontra, realiza uma
+atualização completa e coerente do Arch Linux, reinicia os serviços, valida a
+API e notifica o grupo do Telegram. Verificações sem atualização ficam
+silenciosas. Timeouts de cotação continuam restritos ao `bisq-top`.
+
+Para consultar manualmente sem atualizar:
+
+```bash
+sudo /usr/local/sbin/bisq-auto-update --check
+```
+
+Teste a comunicação com o Telegram:
+
+```bash
+sudo /usr/local/sbin/bisq-auto-update --notify-test
+```
+
+Para executar a rotina imediatamente:
+
+```bash
+sudo systemctl start bisq-auto-update.service
+journalctl -u bisq-auto-update.service
 ```
 
 ## Uso

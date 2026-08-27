@@ -1,0 +1,13 @@
+[Unit]
+Description=Atualização automática e validada dos serviços Bisq
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Environment=BISQ_USER=bisq
+ExecStart=/usr/local/sbin/bisq-auto-update
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+TimeoutStartSec=45min
