@@ -13,7 +13,8 @@ Monitor headless para ofertas da Bisq 1 com painel de terminal e alertas no Tele
 - alertas de falha e recuperação do daemon/API e sincronização DAO;
 - falhas transitórias de cotação ficam somente no painel, evitando spam no Telegram;
 - serviços systemd de usuário com reinício automático e inicialização no login;
-- atualização automática diária dos pacotes Bisq, com validação e alertas no Telegram;
+- verificação diária nos repositórios Arch e nos releases oficiais da Bisq,
+  com validação e alertas no Telegram;
 - credenciais mantidas fora do repositório.
 
 ## Requisitos
@@ -60,10 +61,12 @@ sudo pacman -S --needed pacman-contrib
 sudo ./install-updater.sh
 ```
 
-A rotina verifica diariamente, entre 06:00 e 06:30, se há novas versões de
-`bisq-cli`, `bisq-daemon` ou `bisq-desktop`. Quando encontra, realiza uma
-atualização completa e coerente do Arch Linux, reinicia os serviços, valida a
-API e notifica o grupo do Telegram. Verificações sem atualização ficam
+A rotina verifica diariamente, entre 06:00 e 06:30, os repositórios Arch e o
+release oficial da Bisq. Pacotes disponíveis no Arch são atualizados como um
+conjunto coerente; depois ela reinicia os serviços, valida a API e notifica o
+grupo do Telegram. Como os três componentes também podem ter sido compilados
+localmente, a rotina emite um único alerta quando uma tag oficial mais nova
+precisar ser compilada e instalada. Verificações sem atualização ficam
 silenciosas. Timeouts de cotação continuam restritos ao `bisq-top`.
 
 Para consultar manualmente sem atualizar:

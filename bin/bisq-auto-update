@@ -8,6 +8,9 @@ readonly RUNTIME_DIR="/run/user/$USER_ID"
 readonly TELEGRAM_ENV="$USER_HOME/.config/bisq-monitor/telegram.env"
 readonly DAEMON_ENV="$USER_HOME/.config/bisq/daemon.env"
 readonly LOCK_FILE="/run/lock/bisq-auto-update.lock"
+readonly RELEASE_API="https://api.github.com/repos/bisq-network/bisq/releases/latest"
+readonly STATE_DIR="/var/lib/bisq-auto-update"
+readonly RELEASE_NOTICE_FILE="$STATE_DIR/notified-release"
 readonly PACKAGES=(bisq-cli bisq-daemon bisq-desktop)
 
 mode="update"
@@ -51,6 +54,13 @@ versions() {
     pacman -Q "${PACKAGES[@]}" 2>/dev/null | tr '\n' ';' | sed 's/;$/ /'
 }
 
+latest_official_version() {
+    curl --fail --silent --show-error --max-time 30 \
+        --header 'Accept: application/vnd.github+json' "$RELEASE_API" |
+        sed -n 's/^[[:space:]]*"tag_name":[[:space:]]*"v\{0,1\}\([^"]*\)".*/\1/p' |
+        head -n1
+}
+
 on_exit() {
     local status=$?
     if [[ "$services_stopped" == true ]]; then
@@ -74,6 +84,29 @@ if [[ "$mode" == "notify-test" ]]; then
 Timer, credenciais e comunicação com o Telegram estão funcionando.
 Versões instaladas: ${old_versions}"
     exit 0
+fi
+
+# Os três componentes podem ter sido compilados localmente e, nesse caso,
+# não aparecem no checkupdates. Consulte também o release oficial da Bisq.
+installed_version="$(pacman -Q bisq-daemon | awk '{print $2}' | cut -d- -f1)"
+official_version="$(latest_official_version || true)"
+if [[ -n "$official_version" ]] &&
+        (( $(vercmp "$official_version" "$installed_version") > 0 )); then
+    if [[ "$mode" == "check" ]]; then
+        printf 'Atualização oficial disponível: %s -> %s\n' \
+            "$installed_version" "$official_version"
+        exit 0
+    fi
+
+    install -d -m 700 "$STATE_DIR"
+    notified_version="$(cat "$RELEASE_NOTICE_FILE" 2>/dev/null || true)"
+    if [[ "$notified_version" != "$official_version" ]]; then
+        notify "🔐 NOVA VERSÃO OFICIAL DA BISQ
+Instalada: ${installed_version}
+Disponível: ${official_version}
+Os pacotes locais precisam ser recompilados da tag oficial assinada."
+        printf '%s\n' "$official_version" > "$RELEASE_NOTICE_FILE"
+    fi
 fi
 
 set +e
