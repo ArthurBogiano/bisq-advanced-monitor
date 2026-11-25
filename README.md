@@ -62,6 +62,11 @@ informativo: confirme limites, método de pagamento, taxas e detalhes da contrap
 Uma oferta que deixa de ser oportunidade precisa permanecer ausente por 24 horas
 antes de poder gerar um novo alerta.
 
+O alerta no Telegram é enviado como relatório: ação sugerida, vantagem, lado da
+ordem, preço ofertado e de mercado, limites em BTC e moeda fiduciária, método de
+pagamento, horário, ID completo e conversões instantâneas BTC/BRL, BTC/EUR,
+EUR/BRL e BRL/EUR.
+
 Proteja os arquivos e inicie os serviços:
 
 ```bash

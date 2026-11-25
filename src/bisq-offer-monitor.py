@@ -198,6 +198,27 @@ def number(value):
     return float(str(value).replace(",", "").strip())
 
 
+def format_number(value, decimals=2):
+    rendered = f"{float(value):,.{decimals}f}"
+    return rendered.replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def format_money(value, currency):
+    symbol = "R$" if currency == "BRL" else "€"
+    return f"{symbol} {format_number(value)}"
+
+
+def convert_fiat_range(value, source_currency, eur_brl):
+    values = re.findall(r"[0-9][0-9,]*(?:\.[0-9]+)?", str(value))
+    converted = []
+    for raw in values:
+        amount = number(raw)
+        converted.append(amount / eur_brl if source_currency == "BRL"
+                         else amount * eur_brl)
+    target = "EUR" if source_currency == "BRL" else "BRL"
+    return " – ".join(format_money(amount, target) for amount in converted)
+
+
 def opportunity_for(offer, market_prices):
     market = number(market_prices[offer["currency"]])
     price = number(offer["price"])
@@ -217,6 +238,47 @@ def opportunity_label(item):
             f'oferta {item["offer_price"]:,.2f} vs mercado '
             f'{item["market_price"]:,.2f} | {item["btc_range"]} BTC | '
             f'{item["payment"]} | ID …{item["id"][-12:]}')
+
+
+def opportunity_report(item, market_prices):
+    btc_brl = number(market_prices["BRL"])
+    btc_eur = number(market_prices["EUR"])
+    eur_brl = btc_brl / btc_eur
+    currency = item["currency"]
+    other_currency = "EUR" if currency == "BRL" else "BRL"
+    other_offer_price = (item["offer_price"] / eur_brl if currency == "BRL"
+                         else item["offer_price"] * eur_brl)
+    native_range = item.get("fiat_range") or "não informado"
+    converted_range = convert_fiat_range(native_range, currency, eur_brl)
+    maker_side = "COMPRA BTC" if item["direction"] == "BUY" else "VENDA BTC"
+    created = item.get("created", "não informada").replace("T", " ").replace("Z", " UTC")
+    detected = datetime.now(timezone.utc).astimezone().strftime("%d/%m/%Y %H:%M:%S %Z")
+    return (
+        "🚀 RELATÓRIO DE OPORTUNIDADE — BISQ\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        f"🎯 Ação para você: {item['action']}\n"
+        f"📈 Vantagem estimada: {format_number(item['advantage_pct'])}%\n"
+        f"📋 Ordem do anunciante: {maker_side}\n"
+        f"🌍 Mercado: {currency}\n\n"
+        "💰 PREÇOS\n"
+        f"🏷️ Oferta: {format_money(item['offer_price'], currency)} / BTC\n"
+        f"🔄 Oferta convertida: {format_money(other_offer_price, other_currency)} / BTC\n"
+        f"📊 Mercado BTC/BRL: {format_money(btc_brl, 'BRL')}\n"
+        f"📊 Mercado BTC/EUR: {format_money(btc_eur, 'EUR')}\n"
+        f"💱 EUR/BRL: R$ {format_number(eur_brl, 4)} por € 1\n"
+        f"💱 BRL/EUR: € {format_number(1 / eur_brl, 4)} por R$ 1\n\n"
+        "📦 LIMITES DA ORDEM\n"
+        f"₿ Quantidade: {item.get('btc_range', 'não informada')} BTC\n"
+        f"💵 Valor em {currency}: {native_range}\n"
+        f"🔁 Equivalente em {other_currency}: {converted_range or 'não informado'}\n\n"
+        "🏦 DETALHES\n"
+        f"💳 Pagamento: {item.get('payment', 'não informado')}\n"
+        f"🕒 Criada em: {created}\n"
+        f"🔎 Detectada em: {detected}\n"
+        f"🆔 ID completo: {item['id']}\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "⚠️ Sinal automático. Confirme preço, limites, taxas, conta e dados da contraparte antes de negociar."
+    )
 
 
 def evaluate_opportunities(state, public_offers, market_prices, my_offers):
@@ -250,8 +312,7 @@ def evaluate_opportunities(state, public_offers, market_prices, my_offers):
     for item in alertable[:MAX_OPPORTUNITY_ALERTS]:
         detail = opportunity_label(item)
         emit(state, "opportunity", "OPORTUNIDADE DE MERCADO", detail,
-             "🚀 OPORTUNIDADE NA BISQ\n" + detail +
-             "\n\nSinal automático: confirme preço, limites, taxas e conta antes de negociar.")
+             opportunity_report(item, market_prices))
 
     for offer_id in list(alerts):
         try:
