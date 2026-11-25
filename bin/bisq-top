@@ -41,10 +41,26 @@ def converted_range(value, rate):
     values=re.findall(r"[0-9][0-9,]*(?:\.[0-9]+)?",str(value))
     return " – ".join(money(number(item)*rate,"BRL") for item in values) or "—"
 
+def btc_amounts(value):
+    import re
+    values=[float(item) for item in re.findall(r"[0-9]+(?:\.[0-9]+)?",str(value))]
+    return (values[0],values[-1]) if values else (0.0,0.0)
+
+def render_range(values,formatter):
+    low,high=values
+    return formatter(low) if abs(low-high)<1e-12 else f"{formatter(low)} – {formatter(high)}"
+
 def opportunity_details(item, prices):
     currency=item.get("currency","")
     btc_brl=number(prices.get("BRL",0)); btc_eur=number(prices.get("EUR",0))
     eur_brl=btc_brl/btc_eur if btc_eur else 0
+    amounts=btc_amounts(item.get("btc_range",""))
+    offer_price=number(item.get("offer_price",0)); market_price=number(item.get("market_price",0))
+    capital_brl=tuple(value*offer_price*(eur_brl if currency=="EUR" else 1) for value in amounts)
+    capital_eur=tuple(value*offer_price/(eur_brl if currency=="BRL" else 1) for value in amounts)
+    gross_native=tuple(abs(offer_price-market_price)*value for value in amounts)
+    gross_brl=tuple(value*(eur_brl if currency=="EUR" else 1) for value in gross_native)
+    gross_eur=tuple(value/(eur_brl if currency=="BRL" else 1) for value in gross_native)
     lines=[
         "RELATÓRIO DE OPORTUNIDADE — BISQ",
         "",
@@ -74,6 +90,22 @@ def opportunity_details(item, prices):
     ]
     if currency=="EUR":
         lines += [f"🔁 Equivalente em BRL: {converted_range(item.get('fiat_range',''),eur_brl)}"]
+    required=(render_range(amounts,lambda value:f"{value:.8f}")+" BTC"
+              if item.get("action")=="VENDER BTC" else
+              render_range(capital_brl if currency=="BRL" else capital_eur,
+                           lambda value:money(value,currency)))
+    lines += [
+        "",
+        "💼 CAPITAL E RESULTADO ESTIMADOS",
+        f"₿ BTC negociado: {render_range(amounts,lambda value:f'{value:.8f}')} BTC",
+        f"🇧🇷 Capital equivalente: {render_range(capital_brl,lambda value:money(value,'BRL'))}",
+        f"🇪🇺 Capital equivalente: {render_range(capital_eur,lambda value:money(value,'EUR'))}",
+        f"👛 Principal necessário: {required}",
+        f"📈 Lucro/economia bruta BRL: {render_range(gross_brl,lambda value:money(value,'BRL'))}",
+        f"📈 Lucro/economia bruta EUR: {render_range(gross_eur,lambda value:money(value,'EUR'))}",
+        "🧾 Líquido: bruto menos taxas de negociação, mineração e custos bancários",
+        "🔐 A Bisq exige BTC adicional para depósito de segurança e taxas",
+    ]
     lines += [
         "",
         "🏦 DETALHES",

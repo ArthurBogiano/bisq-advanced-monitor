@@ -219,6 +219,17 @@ def convert_fiat_range(value, source_currency, eur_brl):
     return " – ".join(format_money(amount, target) for amount in converted)
 
 
+def btc_amounts(value):
+    values = re.findall(r"[0-9]+(?:\.[0-9]+)?", str(value))
+    amounts = [float(raw) for raw in values]
+    return (amounts[0], amounts[-1]) if amounts else (0.0, 0.0)
+
+
+def format_range(values, formatter):
+    low, high = values
+    return formatter(low) if abs(low - high) < 1e-12 else f"{formatter(low)} – {formatter(high)}"
+
+
 def opportunity_for(offer, market_prices):
     market = number(market_prices[offer["currency"]])
     price = number(offer["price"])
@@ -246,6 +257,17 @@ def opportunity_report(item, market_prices):
     eur_brl = btc_brl / btc_eur
     currency = item["currency"]
     native_range = item.get("fiat_range") or "não informado"
+    btc_range = btc_amounts(item.get("btc_range", ""))
+    capital_brl = tuple(amount * item["offer_price"] *
+                        (eur_brl if currency == "EUR" else 1) for amount in btc_range)
+    capital_eur = tuple(amount * item["offer_price"] /
+                        (eur_brl if currency == "BRL" else 1) for amount in btc_range)
+    gross_native = tuple(abs(item["offer_price"] - item["market_price"]) * amount
+                         for amount in btc_range)
+    gross_brl = tuple(value * (eur_brl if currency == "EUR" else 1)
+                      for value in gross_native)
+    gross_eur = tuple(value / (eur_brl if currency == "BRL" else 1)
+                      for value in gross_native)
     maker_side = "COMPRA BTC" if item["direction"] == "BUY" else "VENDA BTC"
     created = item.get("created", "não informada").replace("T", " ").replace("Z", " UTC")
     detected = datetime.now(timezone.utc).astimezone().strftime("%d/%m/%Y %H:%M:%S %Z")
@@ -266,6 +288,10 @@ def opportunity_report(item, market_prices):
             f"💱 BRL/EUR: € {format_number(1 / eur_brl, 4)} por R$ 1\n"
         )
         range_lines += f"🔁 Equivalente em BRL: {converted_range or 'não informado'}\n"
+    required = (f"{format_range(btc_range, lambda value: format_number(value, 8))} BTC"
+                if item["action"] == "VENDER BTC" else
+                format_range(capital_brl if currency == "BRL" else capital_eur,
+                             lambda value: format_money(value, currency)))
     return (
         "🚀 RELATÓRIO DE OPORTUNIDADE — BISQ\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
@@ -278,6 +304,15 @@ def opportunity_report(item, market_prices):
         "📦 LIMITES DA ORDEM\n"
         f"₿ Quantidade: {item.get('btc_range', 'não informada')} BTC\n"
         f"{range_lines}\n"
+        "💼 CAPITAL E RESULTADO ESTIMADOS\n"
+        f"₿ BTC negociado: {format_range(btc_range, lambda value: format_number(value, 8))} BTC\n"
+        f"🇧🇷 Capital equivalente: {format_range(capital_brl, lambda value: format_money(value, 'BRL'))}\n"
+        f"🇪🇺 Capital equivalente: {format_range(capital_eur, lambda value: format_money(value, 'EUR'))}\n"
+        f"👛 Principal necessário: {required}\n"
+        f"📈 Lucro/economia bruta em BRL: {format_range(gross_brl, lambda value: format_money(value, 'BRL'))}\n"
+        f"📈 Lucro/economia bruta em EUR: {format_range(gross_eur, lambda value: format_money(value, 'EUR'))}\n"
+        "🧾 Resultado líquido: valores acima menos taxa de negociação, mineração e custos bancários\n"
+        "🔐 Reserva adicional: a Bisq exigirá BTC para depósito de segurança e taxas; confira o valor exato antes de aceitar\n\n"
         "🏦 DETALHES\n"
         f"💳 Pagamento: {item.get('payment', 'não informado')}\n"
         f"🕒 Criada em: {created}\n"

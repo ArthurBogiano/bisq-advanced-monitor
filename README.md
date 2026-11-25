@@ -66,6 +66,9 @@ O alerta no Telegram é enviado como relatório: ação sugerida, vantagem, lado
 ordem, preço ofertado e de mercado, limites em BTC e moeda fiduciária, método de
 pagamento, horário e ID completo. Relatórios BRL permanecem somente em reais;
 relatórios EUR acrescentam as conversões BTC/BRL, EUR/BRL e BRL/EUR.
+Todos os relatórios incluem ainda o capital principal estimado em BTC, BRL e
+EUR e o lucro/economia bruta contra o preço de mercado. O valor líquido depende
+das taxas e do depósito de segurança exibidos pela Bisq antes da confirmação.
 
 Proteja os arquivos e inicie os serviços:
 
