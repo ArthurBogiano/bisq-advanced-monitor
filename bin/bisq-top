@@ -61,6 +61,10 @@ def opportunity_details(item, prices):
     gross_native=tuple(abs(offer_price-market_price)*value for value in amounts)
     gross_brl=tuple(value*(eur_brl if currency=="EUR" else 1) for value in gross_native)
     gross_eur=tuple(value/(eur_brl if currency=="BRL" else 1) for value in gross_native)
+    deposit_pct=float(item.get("taker_deposit_pct",0))
+    deposit_btc=tuple(value*deposit_pct/100 for value in amounts)
+    wallet_btc=deposit_btc if item.get("action")=="COMPRAR BTC" else tuple(
+        value+deposit for value,deposit in zip(amounts,deposit_btc))
     lines=[
         "RELATÓRIO DE OPORTUNIDADE — BISQ",
         "",
@@ -101,10 +105,12 @@ def opportunity_details(item, prices):
         f"🇧🇷 Capital equivalente: {render_range(capital_brl,lambda value:money(value,'BRL'))}",
         f"🇪🇺 Capital equivalente: {render_range(capital_eur,lambda value:money(value,'EUR'))}",
         f"👛 Principal necessário: {required}",
+        f"🔐 Depósito de segurança: {deposit_pct:.2f}% = {render_range(deposit_btc,lambda value:f'{value:.8f}')} BTC",
+        f"👛 BTC mínimo na carteira: {render_range(wallet_btc,lambda value:f'{value:.8f}')} BTC + taxas",
         f"📈 Lucro/economia bruta BRL: {render_range(gross_brl,lambda value:money(value,'BRL'))}",
         f"📈 Lucro/economia bruta EUR: {render_range(gross_eur,lambda value:money(value,'EUR'))}",
         "🧾 Líquido: bruto menos taxas de negociação, mineração e custos bancários",
-        "🔐 A Bisq exige BTC adicional para depósito de segurança e taxas",
+        f"ℹ Taxa do maker registrada: {item.get('maker_fee_sats',0)} sats em {item.get('maker_fee_currency','BTC')}",
     ]
     lines += [
         "",

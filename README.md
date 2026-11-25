@@ -69,6 +69,9 @@ relatórios EUR acrescentam as conversões BTC/BRL, EUR/BRL e BRL/EUR.
 Todos os relatórios incluem ainda o capital principal estimado em BTC, BRL e
 EUR e o lucro/economia bruta contra o preço de mercado. O valor líquido depende
 das taxas e do depósito de segurança exibidos pela Bisq antes da confirmação.
+O coletor protobuf lê os depósitos de comprador e vendedor diretamente da API,
+calcula o percentual aplicável ao taker e estima o BTC mínimo na carteira. A
+taxa do taker e a taxa de mineração continuam sendo confirmadas pela Bisq no aceite.
 
 Proteja os arquivos e inicie os serviços:
 
@@ -133,7 +136,7 @@ Ao abrir a interface gráfica com `bisq-gui`, o daemon é interrompido temporari
 
 ## Segurança
 
-Nunca versione `daemon.env`, `telegram.env`, carteiras, bancos, diretórios Tor ou o arquivo de estado. O `.gitignore` bloqueia esses caminhos. O monitor mostra somente o sufixo dos IDs das ofertas no painel e nas notificações.
+Nunca versione `daemon.env`, `telegram.env`, carteiras, bancos, diretórios Tor ou o arquivo de estado. O `.gitignore` bloqueia esses caminhos. A listagem compacta mostra apenas o sufixo do ID; o relatório detalhado mostra o ID público completo da oferta.
 
 ## Estrutura
 

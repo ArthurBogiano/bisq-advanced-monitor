@@ -3,7 +3,7 @@ set -euo pipefail
 
 project_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 
-for command in python3 systemctl; do
+for command in python3 systemctl javac; do
     command -v "$command" >/dev/null || { echo "Dependência ausente: $command" >&2; exit 1; }
 done
 for binary in /usr/bin/bisq-daemon /usr/bin/bisq-cli; do
@@ -17,6 +17,10 @@ install -m 700 "$project_dir/src/bisq-offer-monitor.py" "$HOME/.local/bin/"
 install -m 700 "$project_dir/bin/bisq-top" "$HOME/.local/bin/"
 install -m 700 "$project_dir/bin/bisqctl" "$HOME/.local/bin/"
 install -m 700 "$project_dir/bin/bisq-gui" "$HOME/.local/bin/"
+install -m 700 "$project_dir/bin/bisq-offer-details" "$HOME/.local/bin/"
+install -d "$HOME/.local/lib/bisq-monitor"
+javac -cp '/opt/bisq-cli/lib/*' -d "$HOME/.local/lib/bisq-monitor" \
+    "$project_dir/src/BisqOfferDetails.java"
 install -m 644 "$project_dir/systemd/"*.service "$HOME/.config/systemd/user/"
 
 if [[ ! -f "$HOME/.config/bisq/daemon.env" ]]; then

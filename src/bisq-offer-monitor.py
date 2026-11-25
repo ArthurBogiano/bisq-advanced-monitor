@@ -18,6 +18,7 @@ STATE_FILE = STATE_DIR / "state.json"
 ENV_FILE = HOME / ".config/bisq/daemon.env"
 DB_DIR = HOME / ".local/share/Bisq/btc_mainnet/db"
 CLI = "/usr/bin/bisq-cli"
+OFFER_DETAILS = str(HOME / ".local/bin/bisq-offer-details")
 API_PORT = os.getenv("BISQ_API_PORT", "9998")
 TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
@@ -188,9 +189,37 @@ def collect_market_offers():
     result = {}
     for currency in OPPORTUNITY_CURRENCIES:
         for direction in ("buy", "sell"):
-            output = cli("getoffers", f"--direction={direction}",
-                         f"--currency-code={currency}")
-            result.update(parse_market_offers(output, currency))
+            try:
+                process = subprocess.run([OFFER_DETAILS, direction, currency], text=True,
+                                         capture_output=True, timeout=35)
+            except subprocess.TimeoutExpired:
+                raise RuntimeError(f"detalhes de ofertas {direction}/{currency} excederam 35s") from None
+            if process.returncode:
+                raise RuntimeError(process.stderr.strip() or
+                                   f"detalhes de ofertas falharam ({process.returncode})")
+            for line in process.stdout.splitlines():
+                fields = line.split("\t")
+                if len(fields) != 14:
+                    continue
+                (offer_id, side, price, min_amount, amount, min_volume, volume,
+                 payment, buyer_deposit, seller_deposit, tx_fee, maker_fee,
+                 maker_fee_btc, created_ms) = fields
+                minimum, maximum = int(min_amount) / 1e8, int(amount) / 1e8
+                btc_range = (f"{maximum:.8f}" if minimum == maximum else
+                             f"{minimum:.8f} - {maximum:.8f}")
+                fiat_range = volume if min_volume == volume else f"{min_volume} - {volume}"
+                created = datetime.fromtimestamp(
+                    int(created_ms) / 1000, timezone.utc).isoformat().replace("+00:00", "Z")
+                result[offer_id] = {
+                    "id": offer_id, "direction": side, "currency": currency,
+                    "price": price, "btc_range": btc_range, "fiat_range": fiat_range,
+                    "payment": payment, "created": created,
+                    "amount_sats": int(amount), "min_amount_sats": int(min_amount),
+                    "buyer_deposit_sats": int(buyer_deposit),
+                    "seller_deposit_sats": int(seller_deposit),
+                    "tx_fee_sats": int(tx_fee), "maker_fee_sats": int(maker_fee),
+                    "maker_fee_currency": "BTC" if maker_fee_btc == "true" else "BSQ",
+                }
     return result
 
 
@@ -239,8 +268,14 @@ def opportunity_for(offer, market_prices):
     else:
         action = "VENDER BTC"
         advantage = (price - market) / market * 100
+    deposit_sats = (offer.get("buyer_deposit_sats", 0) if offer["direction"] == "SELL"
+                    else offer.get("seller_deposit_sats", 0))
+    amount_sats = offer.get("amount_sats", 0)
+    deposit_pct = deposit_sats / amount_sats * 100 if amount_sats else 0
     return {**offer, "action": action, "market_price": market,
-            "offer_price": price, "advantage_pct": advantage}
+            "offer_price": price, "advantage_pct": advantage,
+            "taker_deposit_sats": deposit_sats,
+            "taker_deposit_pct": deposit_pct}
 
 
 def opportunity_label(item):
@@ -268,6 +303,11 @@ def opportunity_report(item, market_prices):
                       for value in gross_native)
     gross_eur = tuple(value / (eur_brl if currency == "BRL" else 1)
                       for value in gross_native)
+    deposit_pct = float(item.get("taker_deposit_pct", 0))
+    deposit_btc = tuple(amount * deposit_pct / 100 for amount in btc_range)
+    wallet_btc = tuple(amount + deposit for amount, deposit in zip(btc_range, deposit_btc))
+    if item["action"] == "COMPRAR BTC":
+        wallet_btc = deposit_btc
     maker_side = "COMPRA BTC" if item["direction"] == "BUY" else "VENDA BTC"
     created = item.get("created", "não informada").replace("T", " ").replace("Z", " UTC")
     detected = datetime.now(timezone.utc).astimezone().strftime("%d/%m/%Y %H:%M:%S %Z")
@@ -309,10 +349,13 @@ def opportunity_report(item, market_prices):
         f"🇧🇷 Capital equivalente: {format_range(capital_brl, lambda value: format_money(value, 'BRL'))}\n"
         f"🇪🇺 Capital equivalente: {format_range(capital_eur, lambda value: format_money(value, 'EUR'))}\n"
         f"👛 Principal necessário: {required}\n"
+        f"🔐 Depósito de segurança: {format_number(deposit_pct)}% = "
+        f"{format_range(deposit_btc, lambda value: format_number(value, 8))} BTC\n"
+        f"👛 BTC mínimo na carteira: {format_range(wallet_btc, lambda value: format_number(value, 8))} BTC + taxa do taker/mineração\n"
         f"📈 Lucro/economia bruta em BRL: {format_range(gross_brl, lambda value: format_money(value, 'BRL'))}\n"
         f"📈 Lucro/economia bruta em EUR: {format_range(gross_eur, lambda value: format_money(value, 'EUR'))}\n"
         "🧾 Resultado líquido: valores acima menos taxa de negociação, mineração e custos bancários\n"
-        "🔐 Reserva adicional: a Bisq exigirá BTC para depósito de segurança e taxas; confira o valor exato antes de aceitar\n\n"
+        f"ℹ️ Taxa registrada da criação da oferta: {item.get('maker_fee_sats', 0)} sats em {item.get('maker_fee_currency', 'BTC')} (é do maker, não sua taxa)\n\n"
         "🏦 DETALHES\n"
         f"💳 Pagamento: {item.get('payment', 'não informado')}\n"
         f"🕒 Criada em: {created}\n"
