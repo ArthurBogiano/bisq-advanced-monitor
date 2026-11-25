@@ -75,79 +75,47 @@ def opportunity_details(item, prices):
     net_brl=tuple(value*(eur_brl if currency=="EUR" else 1) for value in net_native)
     net_eur=tuple(value/(eur_brl if currency=="BRL" else 1) for value in net_native)
     lines=[
-        "RELATÓRIO DE OPORTUNIDADE — BISQ",
+        "OPORTUNIDADE BISQ",
+        f"🎯 {item.get('action','—')} • {float(item.get('advantage_pct',0)):.2f}% de vantagem",
+        f"💳 {item.get('payment','—')} • {currency}",
         "",
-        f"🎯 Ação para você: {item.get('action','—')}",
-        f"📈 Vantagem estimada: {float(item.get('advantage_pct',0)):.2f}%",
-        f"📋 Ordem do anunciante: {'COMPRA BTC' if item.get('direction')=='BUY' else 'VENDA BTC'}",
-        f"🌍 Mercado: {currency}",
-        "",
-        "💰 PREÇOS",
         f"🏷 Oferta: {money(item.get('offer_price'),currency)} / BTC",
     ]
     if currency=="EUR":
         lines += [
-            f"🔄 Oferta em reais: {money(number(item.get('offer_price',0))*eur_brl,'BRL')} / BTC",
-            f"📊 Mercado BTC/EUR: {money(btc_eur,'EUR')}",
-            f"📊 Mercado BTC/BRL: {money(btc_brl,'BRL')}",
-            f"💱 EUR/BRL: R$ {eur_brl:.4f} por € 1",
-            f"💱 BRL/EUR: € {1/eur_brl:.4f} por R$ 1" if eur_brl else "💱 BRL/EUR: —",
+            f"📊 Mercado: {money(btc_eur,'EUR')} / BTC",
+            f"🇧🇷 Oferta em reais: {money(number(item.get('offer_price',0))*eur_brl,'BRL')} / BTC",
         ]
     else:
-        lines += [f"📊 Mercado BTC/BRL: {money(btc_brl,'BRL')}"]
+        lines += [f"📊 Mercado: {money(btc_brl,'BRL')} / BTC"]
     lines += [
-        "",
-        "📦 LIMITES DA ORDEM",
         f"₿ Quantidade: {item.get('btc_range','—')} BTC",
-        f"💵 Valor em {currency}: {item.get('fiat_range','—')}",
+        f"💵 Valor: {item.get('fiat_range','—')} {currency}",
     ]
     if currency=="EUR":
-        lines += [f"🔁 Equivalente em BRL: {converted_range(item.get('fiat_range',''),eur_brl)}"]
+        lines += [f"🇧🇷 Equivalente: {converted_range(item.get('fiat_range',''),eur_brl)}"]
     required=(render_range(amounts,lambda value:f"{value:.8f}")+" BTC"
               if item.get("action")=="VENDER BTC" else
               render_range(capital_brl if currency=="BRL" else capital_eur,
                            lambda value:money(value,currency)))
     lines += [
         "",
-        "💼 CAPITAL E RESULTADO ESTIMADOS",
-        f"₿ BTC negociado: {render_range(amounts,lambda value:f'{value:.8f}')} BTC",
-    ]
-    if currency=="EUR":
-        lines += [
-            f"🇪🇺 Capital da negociação: {render_range(capital_eur,lambda value:money(value,'EUR'))}",
-            f"🇧🇷 Equivalente em reais: {render_range(capital_brl,lambda value:money(value,'BRL'))}",
-        ]
-    else:
-        lines += [f"🇧🇷 Capital da negociação: {render_range(capital_brl,lambda value:money(value,'BRL'))}"]
-    lines += [
-        f"👛 Principal necessário: {required}",
+        "💼 PARA ACEITAR",
+        f"👛 Principal: {required}",
         f"🔐 Depósito de segurança: {deposit_pct:.2f}% = {render_range(deposit_btc,lambda value:f'{value:.8f}')} BTC",
-        f"🧾 Taker + mineração: {render_range(fee_btc,lambda value:f'{value:.8f}')} BTC",
-        f"👛 BTC necessário na carteira: {render_range(wallet_btc,lambda value:f'{value:.8f}')} BTC",
-        f"🇧🇷 Equivalente do saldo BTC: {render_range(wallet_brl,lambda value:money(value,'BRL'))}",
+        f"🧾 Taxas estimadas: {render_range(fee_btc,lambda value:f'{value:.8f}')} BTC",
+        f"👛 Carteira: {render_range(wallet_btc,lambda value:f'{value:.8f}')} BTC",
+        f"🇧🇷 Equivalente: {render_range(wallet_brl,lambda value:money(value,'BRL'))}",
     ]
     if currency=="EUR":
         lines += [
-            f"🇪🇺 Equivalente do saldo BTC: {render_range(wallet_eur,lambda value:money(value,'EUR'))}",
-            f"📈 Lucro/economia bruta: {render_range(gross_eur,lambda value:money(value,'EUR'))}",
-            f"✅ Após taxas BTC estimadas: {render_range(net_eur,lambda value:money(value,'EUR'))}",
-            f"🇧🇷 Resultado em reais: {render_range(net_brl,lambda value:money(value,'BRL'))}",
+            f"🇪🇺 Equivalente: {render_range(wallet_eur,lambda value:money(value,'EUR'))}",
+            f"✅ Resultado líquido estimado: {render_range(net_eur,lambda value:money(value,'EUR'))}",
+            f"🇧🇷 Em reais: {render_range(net_brl,lambda value:money(value,'BRL'))}",
         ]
     else:
-        lines += [
-            f"📈 Lucro/economia bruta: {render_range(gross_brl,lambda value:money(value,'BRL'))}",
-            f"✅ Após taxas BTC estimadas: {render_range(net_brl,lambda value:money(value,'BRL'))}",
-        ]
-    lines += ["ℹ Depósito retorna ao concluir; custos bancários não incluídos"]
-    lines += [
-        "",
-        "🏦 DETALHES",
-        f"💳 Pagamento: {item.get('payment','—')}",
-        f"🕒 Criada em: {item.get('created','—')}",
-        f"🆔 ID completo: {item.get('id','—')}",
-        "",
-        "⚠ Sinal automático. Confirme taxas, conta e contraparte antes de negociar.",
-    ]
+        lines += [f"✅ Resultado líquido estimado: {render_range(net_brl,lambda value:money(value,'BRL'))}"]
+    lines += ["", f"🆔 {item.get('id','—')}", "ℹ Depósito devolvido ao concluir. Confirme os valores na Bisq."]
     return lines
 
 def main(w):

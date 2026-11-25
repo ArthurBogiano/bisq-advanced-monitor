@@ -62,9 +62,8 @@ informativo: confirme limites, método de pagamento, taxas e detalhes da contrap
 Uma oferta que deixa de ser oportunidade precisa permanecer ausente por 24 horas
 antes de poder gerar um novo alerta.
 
-O alerta no Telegram é enviado como relatório: ação sugerida, vantagem, lado da
-ordem, preço ofertado e de mercado, limites em BTC e moeda fiduciária, método de
-pagamento, horário e ID completo. Relatórios BRL permanecem somente em reais;
+O alerta no Telegram é um resumo operacional: ação, vantagem, preço da oferta e
+de mercado, quantidade, valor, método de pagamento e ID. Relatórios BRL permanecem somente em reais;
 relatórios EUR acrescentam as conversões BTC/BRL, EUR/BRL e BRL/EUR.
 Os relatórios incluem o principal, depósito, taxa do taker, reserva de mineração,
 saldo BTC necessário com seu equivalente em reais e lucro/economia após essas

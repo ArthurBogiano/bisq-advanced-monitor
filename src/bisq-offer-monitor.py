@@ -335,77 +335,49 @@ def opportunity_report(item, market_prices):
                     for value in net_native)
     net_eur = tuple(value / (eur_brl if currency == "BRL" else 1)
                     for value in net_native)
-    maker_side = "COMPRA BTC" if item["direction"] == "BUY" else "VENDA BTC"
-    created = item.get("created", "não informada").replace("T", " ").replace("Z", " UTC")
-    detected = datetime.now(timezone.utc).astimezone().strftime("%d/%m/%Y %H:%M:%S %Z")
     price_lines = (
         f"🏷️ Oferta: {format_money(item['offer_price'], 'BRL')} / BTC\n"
-        f"📊 Mercado BTC/BRL: {format_money(btc_brl, 'BRL')}\n"
+        f"📊 Mercado: {format_money(btc_brl, 'BRL')} / BTC\n"
     )
-    range_lines = f"💵 Valor em {currency}: {native_range}\n"
+    range_lines = f"💵 Valor: {native_range} {currency}\n"
     if currency == "EUR":
         offer_brl = item["offer_price"] * eur_brl
         converted_range = convert_fiat_range(native_range, currency, eur_brl)
         price_lines = (
             f"🏷️ Oferta: {format_money(item['offer_price'], 'EUR')} / BTC\n"
-            f"🔄 Oferta em reais: {format_money(offer_brl, 'BRL')} / BTC\n"
-            f"📊 Mercado BTC/EUR: {format_money(btc_eur, 'EUR')}\n"
-            f"📊 Mercado BTC/BRL: {format_money(btc_brl, 'BRL')}\n"
-            f"💱 EUR/BRL: R$ {format_number(eur_brl, 4)} por € 1\n"
-            f"💱 BRL/EUR: € {format_number(1 / eur_brl, 4)} por R$ 1\n"
+            f"📊 Mercado: {format_money(btc_eur, 'EUR')} / BTC\n"
+            f"🇧🇷 Oferta em reais: {format_money(offer_brl, 'BRL')} / BTC\n"
         )
-        range_lines += f"🔁 Equivalente em BRL: {converted_range or 'não informado'}\n"
+        range_lines += f"🇧🇷 Equivalente: {converted_range or 'não informado'}\n"
     required = (f"{format_range(btc_range, lambda value: format_number(value, 8))} BTC"
                 if item["action"] == "VENDER BTC" else
                 format_range(capital_brl if currency == "BRL" else capital_eur,
                              lambda value: format_money(value, currency)))
-    capital_lines = (
-        f"🇧🇷 Capital da negociação: {format_range(capital_brl, lambda value: format_money(value, 'BRL'))}\n"
-    )
     profit_lines = (
-        f"📈 Lucro/economia bruta: {format_range(gross_brl, lambda value: format_money(value, 'BRL'))}\n"
-        f"✅ Resultado após taxas BTC estimadas: {format_range(net_brl, lambda value: format_money(value, 'BRL'))}\n"
+        f"✅ Resultado líquido estimado: {format_range(net_brl, lambda value: format_money(value, 'BRL'))}\n"
     )
     if currency == "EUR":
-        capital_lines = (
-            f"🇪🇺 Capital da negociação: {format_range(capital_eur, lambda value: format_money(value, 'EUR'))}\n"
-            f"🇧🇷 Equivalente em reais: {format_range(capital_brl, lambda value: format_money(value, 'BRL'))}\n"
-        )
         profit_lines = (
-            f"📈 Lucro/economia bruta: {format_range(gross_eur, lambda value: format_money(value, 'EUR'))}\n"
-            f"✅ Resultado após taxas BTC estimadas: {format_range(net_eur, lambda value: format_money(value, 'EUR'))}\n"
-            f"🇧🇷 Resultado estimado em reais: {format_range(net_brl, lambda value: format_money(value, 'BRL'))}\n"
+            f"✅ Resultado líquido estimado: {format_range(net_eur, lambda value: format_money(value, 'EUR'))}\n"
+            f"🇧🇷 Em reais: {format_range(net_brl, lambda value: format_money(value, 'BRL'))}\n"
         )
     return (
-        "🚀 RELATÓRIO DE OPORTUNIDADE — BISQ\n"
-        "━━━━━━━━━━━━━━━━━━━━\n"
-        f"🎯 Ação para você: {item['action']}\n"
-        f"📈 Vantagem estimada: {format_number(item['advantage_pct'])}%\n"
-        f"📋 Ordem do anunciante: {maker_side}\n"
-        f"🌍 Mercado: {currency}\n\n"
-        "💰 PREÇOS\n"
-        f"{price_lines}\n"
-        "📦 LIMITES DA ORDEM\n"
+        "🚀 OPORTUNIDADE BISQ\n"
+        f"🎯 {item['action']} • {format_number(item['advantage_pct'])}% de vantagem\n"
+        f"💳 {item.get('payment', 'não informado')} • {currency}\n\n"
+        f"{price_lines}"
         f"₿ Quantidade: {item.get('btc_range', 'não informada')} BTC\n"
         f"{range_lines}\n"
-        "💼 CAPITAL E RESULTADO ESTIMADOS\n"
-        f"₿ BTC negociado: {format_range(btc_range, lambda value: format_number(value, 8))} BTC\n"
-        f"{capital_lines}"
-        f"👛 Principal necessário: {required}\n"
+        "💼 PARA ACEITAR\n"
+        f"👛 Principal: {required}\n"
         f"🔐 Depósito de segurança: {format_number(deposit_pct)}% = "
         f"{format_range(deposit_btc, lambda value: format_number(value, 8))} BTC\n"
-        f"🧾 Taxa do taker + mineração estimada: {format_range(total_fee_btc, lambda value: format_number(value, 8))} BTC\n"
-        f"👛 BTC necessário na carteira: {format_range(wallet_btc, lambda value: format_number(value, 8))} BTC\n"
+        f"🧾 Taxas estimadas: {format_range(total_fee_btc, lambda value: format_number(value, 8))} BTC\n"
+        f"👛 Carteira: {format_range(wallet_btc, lambda value: format_number(value, 8))} BTC\n"
         f"{wallet_fiat_lines}"
-        f"{profit_lines}"
-        "ℹ️ Depósito retorna ao concluir a negociação; custos bancários não estão incluídos\n\n"
-        "🏦 DETALHES\n"
-        f"💳 Pagamento: {item.get('payment', 'não informado')}\n"
-        f"🕒 Criada em: {created}\n"
-        f"🔎 Detectada em: {detected}\n"
-        f"🆔 ID completo: {item['id']}\n"
-        "━━━━━━━━━━━━━━━━━━━━\n"
-        "⚠️ Sinal automático. Confirme preço, limites, taxas, conta e dados da contraparte antes de negociar."
+        f"{profit_lines}\n"
+        f"🆔 {item['id']}\n"
+        "ℹ️ Depósito devolvido ao concluir. Confirme os valores na Bisq."
     )
 
 
