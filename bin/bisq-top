@@ -60,10 +60,20 @@ def main(w):
         put(w,2,0,f"ATIVAS: {active}",curses.color_pair(1)|curses.A_BOLD)
         put(w,2,18,f"PAUSADAS: {paused}",curses.color_pair(3)|curses.A_BOLD)
         if d.get("last_error"): put(w,3,0,"ALERTA: "+str(d["last_error"]),curses.color_pair(2)|curses.A_BOLD)
-        y=5; put(w,y,0,"OFERTAS",curses.A_BOLD|curses.A_UNDERLINE); y+=1
+        opportunities=d.get("opportunities",[])
+        y=5; put(w,y,0,"OPORTUNIDADES",curses.A_BOLD|curses.A_UNDERLINE); y+=1
+        if not opportunities:
+            put(w,y,0,"Nenhum sinal acima do limite configurado.",curses.A_DIM); y+=1
+        for item in opportunities[:min(3,max(1,h//8))]:
+            line=(f"{item.get('action','')} {item.get('currency','')}  "
+                  f"VANTAGEM {float(item.get('advantage_pct',0)):.2f}%  "
+                  f"{item.get('price','')}/BTC  {item.get('btc_range','')} BTC  "
+                  f"{item.get('payment','')}  …{item.get('id','')[-10:]}")
+            put(w,y,0,cut(line,cols-1),curses.color_pair(5)|curses.A_BOLD); y+=1
+        y+=1; put(w,y,0,"MINHAS OFERTAS",curses.A_BOLD|curses.A_UNDERLINE); y+=1
         put(w,y,0,f"{'ST':<4} {'LADO':<6} {'MOEDA':<5} {'FAIXA BTC':<23} {'VALOR EM MOEDA':<19} {'PREÇO/BTC':<15} {'MÉTODO':<11} ID",
             curses.color_pair(4)|curses.A_BOLD); y+=1
-        rows=max(1,min(len(offers),h-14))
+        rows=max(1,min(len(offers),max(1,h-y-8)))
         for o in offers[:rows]:
             on=o.get("enabled")
             line=(f"{'ON' if on else 'OFF':<4} {o.get('direction',''):<6} {o.get('currency',''):<5} "
@@ -76,7 +86,7 @@ def main(w):
         if not events: put(w,y,0,"Nenhum evento registrado ainda.",curses.A_DIM)
         for e in events[scroll:scroll+available]:
             kind=e.get("kind","event")
-            if kind=="accepted": style=curses.color_pair(5)|curses.A_BOLD; marker="*** ACEITA ***"
+            if kind in ("accepted","opportunity"): style=curses.color_pair(5)|curses.A_BOLD; marker="*** "+("ACEITA" if kind=="accepted" else "OPORTUNIDADE")+" ***"
             elif kind=="error": style=curses.color_pair(2)|curses.A_BOLD; marker="ERRO"
             elif kind in ("paused","warning","removed"): style=curses.color_pair(3)|curses.A_BOLD; marker=kind.upper()
             else: style=curses.color_pair(1); marker=kind.upper()

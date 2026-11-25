@@ -22,6 +22,13 @@ API_PORT = os.getenv("BISQ_API_PORT", "9998")
 TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 INTERVAL = int(os.getenv("MONITOR_INTERVAL", "60"))
+OPPORTUNITY_CURRENCIES = tuple(
+    item.strip().upper() for item in os.getenv(
+        "OPPORTUNITY_CURRENCIES", "BRL,EUR").split(",") if item.strip())
+MIN_ADVANTAGE_PCT = float(os.getenv("OPPORTUNITY_MIN_ADVANTAGE_PCT", "1.5"))
+REALERT_IMPROVEMENT_PCT = float(os.getenv("OPPORTUNITY_REALERT_IMPROVEMENT_PCT", "1.0"))
+MAX_OPPORTUNITY_ALERTS = int(os.getenv("OPPORTUNITY_MAX_ALERTS_PER_CYCLE", "3"))
+OPPORTUNITY_RESET_HOURS = int(os.getenv("OPPORTUNITY_RESET_HOURS", "24"))
 LOG = logging.getLogger("bisq-monitor")
 
 
@@ -136,6 +143,25 @@ def parse_offers(output, currency):
     return offers
 
 
+def parse_market_offers(output, currency):
+    """Parse public offer-book rows (which do not contain the Enabled column)."""
+    offers = {}
+    for line in output.splitlines():
+        if not re.match(r"^(BUY|SELL)\s+", line):
+            continue
+        fields = re.split(r"\s{2,}", line.strip())
+        if len(fields) < 7:
+            continue
+        direction, price, btc_range, fiat_range = fields[:4]
+        offer_id = fields[-1].strip()
+        offers[offer_id] = {
+            "id": offer_id, "direction": direction, "currency": currency,
+            "price": price, "btc_range": btc_range, "fiat_range": fiat_range,
+            "payment": fields[-3].strip(), "created": fields[-2].strip(),
+        }
+    return offers
+
+
 def collect_offers():
     result = {}
     for currency in currencies():
@@ -156,6 +182,86 @@ def collect_market_prices():
             raise RuntimeError(f"Cotação BTC/{currency} inválida: {output}")
         prices[currency] = match.group(1).replace(",", "")
     return prices
+
+
+def collect_market_offers():
+    result = {}
+    for currency in OPPORTUNITY_CURRENCIES:
+        for direction in ("buy", "sell"):
+            output = cli("getoffers", f"--direction={direction}",
+                         f"--currency-code={currency}")
+            result.update(parse_market_offers(output, currency))
+    return result
+
+
+def number(value):
+    return float(str(value).replace(",", "").strip())
+
+
+def opportunity_for(offer, market_prices):
+    market = number(market_prices[offer["currency"]])
+    price = number(offer["price"])
+    if offer["direction"] == "SELL":
+        action = "COMPRAR BTC"
+        advantage = (market - price) / market * 100
+    else:
+        action = "VENDER BTC"
+        advantage = (price - market) / market * 100
+    return {**offer, "action": action, "market_price": market,
+            "offer_price": price, "advantage_pct": advantage}
+
+
+def opportunity_label(item):
+    return (f'{item["action"]} em {item["currency"]} | '
+            f'vantagem {item["advantage_pct"]:.2f}% | '
+            f'oferta {item["offer_price"]:,.2f} vs mercado '
+            f'{item["market_price"]:,.2f} | {item["btc_range"]} BTC | '
+            f'{item["payment"]} | ID …{item["id"][-12:]}')
+
+
+def evaluate_opportunities(state, public_offers, market_prices, my_offers):
+    own_ids = set(my_offers)
+    candidates = []
+    for offer in public_offers.values():
+        if offer["id"] in own_ids or offer["currency"] not in market_prices:
+            continue
+        try:
+            item = opportunity_for(offer, market_prices)
+        except (ValueError, ZeroDivisionError):
+            continue
+        if item["advantage_pct"] >= MIN_ADVANTAGE_PCT:
+            candidates.append(item)
+    candidates.sort(key=lambda item: item["advantage_pct"], reverse=True)
+
+    now = datetime.now(timezone.utc).astimezone()
+    alerts = state.setdefault("opportunity_alerts", {})
+    alertable = []
+    for item in candidates:
+        previous = alerts.get(item["id"])
+        improved = (previous and item["advantage_pct"] >=
+                    float(previous.get("advantage_pct", 0)) + REALERT_IMPROVEMENT_PCT)
+        if not previous or improved:
+            alertable.append(item)
+        best_advantage = max(item["advantage_pct"],
+                             float((previous or {}).get("advantage_pct", 0)))
+        alerts[item["id"]] = {"advantage_pct": best_advantage,
+                              "last_seen": now.isoformat(timespec="seconds")}
+
+    for item in alertable[:MAX_OPPORTUNITY_ALERTS]:
+        detail = opportunity_label(item)
+        emit(state, "opportunity", "OPORTUNIDADE DE MERCADO", detail,
+             "🚀 OPORTUNIDADE NA BISQ\n" + detail +
+             "\n\nSinal automático: confirme preço, limites, taxas e conta antes de negociar.")
+
+    for offer_id in list(alerts):
+        try:
+            last_seen = datetime.fromisoformat(alerts[offer_id]["last_seen"])
+            expired = (now - last_seen).total_seconds() > OPPORTUNITY_RESET_HOURS * 3600
+        except (KeyError, TypeError, ValueError):
+            expired = True
+        if expired:
+            alerts.pop(offer_id, None)
+    return candidates[:20]
 
 
 def was_accepted(offer_id):
@@ -192,6 +298,15 @@ def check_once(state):
     except Exception as exc:
         market_prices = state.get("market_prices", {})
         price_error = str(exc)
+
+    try:
+        public_offers = collect_market_offers() if healthy else {}
+        opportunities = evaluate_opportunities(
+            state, public_offers, market_prices, offers) if market_prices else []
+        opportunity_error = None
+    except Exception as exc:
+        opportunities = state.get("opportunities", [])
+        opportunity_error = str(exc)
 
     previous_price_error = state.get("price_error")
     if price_error and not previous_price_error:
@@ -238,6 +353,8 @@ def check_once(state):
 
     state.update({"offers": offers, "healthy": healthy,
                   "market_prices": market_prices,
+                  "opportunities": opportunities,
+                  "opportunity_error": opportunity_error,
                   "price_error": price_error,
                   "dao_synced": dao_synced, "initialized": state.get("initialized") or healthy,
                   "last_check": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),

@@ -8,6 +8,8 @@ Monitor headless para ofertas da Bisq 1 com painel de terminal e alertas no Tele
 - ofertas ativas e pausadas, faixas em BTC e valores em BRL/EUR;
 - cotações BTC/BRL e BTC/EUR obtidas da API local da Bisq;
 - destaque especial para ofertas aceitas;
+- detector de oportunidades no livro público BRL/EUR, comparando cada oferta
+  com a cotação de mercado e aplicando limite de vantagem e anti-spam;
 - histórico local dos últimos 100 eventos;
 - alertas no Telegram para aceite, remoção, pausa e reativação;
 - alertas de falha e recuperação do daemon/API e sincronização DAO;
@@ -45,7 +47,20 @@ Configure o Telegram em `~/.config/bisq-monitor/telegram.env`:
 TELEGRAM_BOT_TOKEN=token_fornecido_pelo_BotFather
 TELEGRAM_CHAT_ID=-1000000000000
 BISQ_API_PORT=9998
+OPPORTUNITY_CURRENCIES=BRL,EUR
+OPPORTUNITY_MIN_ADVANTAGE_PCT=1.5
+OPPORTUNITY_REALERT_IMPROVEMENT_PCT=1.0
+OPPORTUNITY_MAX_ALERTS_PER_CYCLE=3
+OPPORTUNITY_RESET_HOURS=24
 ```
+
+Uma oportunidade de compra é uma oferta `SELL` abaixo da cotação de mercado;
+uma oportunidade de venda é uma oferta `BUY` acima dela. O limite padrão exige
+1,5% de vantagem. Cada oferta gera um alerta e só volta a alertar se melhorar
+pelo menos 1 ponto percentual, evitando mensagens repetidas. O sinal é
+informativo: confirme limites, método de pagamento, taxas e detalhes da contraparte.
+Uma oferta que deixa de ser oportunidade precisa permanecer ausente por 24 horas
+antes de poder gerar um novo alerta.
 
 Proteja os arquivos e inicie os serviços:
 
