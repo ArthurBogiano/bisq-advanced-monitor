@@ -318,6 +318,17 @@ def opportunity_report(item, market_prices):
     if item["action"] == "COMPRAR BTC":
         wallet_btc = tuple(deposit + fee for deposit, fee in
                            zip(deposit_btc, total_fee_btc))
+    wallet_brl = tuple(value * btc_brl for value in wallet_btc)
+    wallet_eur = tuple(value * btc_eur for value in wallet_btc)
+    wallet_fiat_lines = (
+        f"🇧🇷 Equivalente do saldo BTC: "
+        f"{format_range(wallet_brl, lambda value: format_money(value, 'BRL'))}\n"
+    )
+    if currency == "EUR":
+        wallet_fiat_lines += (
+            f"🇪🇺 Equivalente do saldo BTC: "
+            f"{format_range(wallet_eur, lambda value: format_money(value, 'EUR'))}\n"
+        )
     net_native = tuple(gross - fee * item["market_price"] for gross, fee in
                        zip(gross_native, total_fee_btc))
     net_brl = tuple(value * (eur_brl if currency == "EUR" else 1)
@@ -385,6 +396,7 @@ def opportunity_report(item, market_prices):
         f"{format_range(deposit_btc, lambda value: format_number(value, 8))} BTC\n"
         f"🧾 Taxa do taker + mineração estimada: {format_range(total_fee_btc, lambda value: format_number(value, 8))} BTC\n"
         f"👛 BTC necessário na carteira: {format_range(wallet_btc, lambda value: format_number(value, 8))} BTC\n"
+        f"{wallet_fiat_lines}"
         f"{profit_lines}"
         "ℹ️ Depósito retorna ao concluir a negociação; custos bancários não estão incluídos\n\n"
         "🏦 DETALHES\n"

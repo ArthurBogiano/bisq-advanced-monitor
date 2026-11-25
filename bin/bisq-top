@@ -69,6 +69,8 @@ def opportunity_details(item, prices):
     wallet_btc=(tuple(deposit+fee for deposit,fee in zip(deposit_btc,fee_btc))
                 if item.get("action")=="COMPRAR BTC" else
                 tuple(value+deposit+fee for value,deposit,fee in zip(amounts,deposit_btc,fee_btc)))
+    wallet_brl=tuple(value*btc_brl for value in wallet_btc)
+    wallet_eur=tuple(value*btc_eur for value in wallet_btc)
     net_native=tuple(gross-fee*market_price for gross,fee in zip(gross_native,fee_btc))
     net_brl=tuple(value*(eur_brl if currency=="EUR" else 1) for value in net_native)
     net_eur=tuple(value/(eur_brl if currency=="BRL" else 1) for value in net_native)
@@ -122,9 +124,11 @@ def opportunity_details(item, prices):
         f"🔐 Depósito de segurança: {deposit_pct:.2f}% = {render_range(deposit_btc,lambda value:f'{value:.8f}')} BTC",
         f"🧾 Taker + mineração: {render_range(fee_btc,lambda value:f'{value:.8f}')} BTC",
         f"👛 BTC necessário na carteira: {render_range(wallet_btc,lambda value:f'{value:.8f}')} BTC",
+        f"🇧🇷 Equivalente do saldo BTC: {render_range(wallet_brl,lambda value:money(value,'BRL'))}",
     ]
     if currency=="EUR":
         lines += [
+            f"🇪🇺 Equivalente do saldo BTC: {render_range(wallet_eur,lambda value:money(value,'EUR'))}",
             f"📈 Lucro/economia bruta: {render_range(gross_eur,lambda value:money(value,'EUR'))}",
             f"✅ Após taxas BTC estimadas: {render_range(net_eur,lambda value:money(value,'EUR'))}",
             f"🇧🇷 Resultado em reais: {render_range(net_brl,lambda value:money(value,'BRL'))}",
