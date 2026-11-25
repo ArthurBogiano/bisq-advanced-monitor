@@ -2,6 +2,8 @@
 """Monitor Bisq offers and notify state/health changes through Telegram."""
 
 import json
+import html
+import hashlib
 import logging
 import os
 import re
@@ -19,6 +21,7 @@ ENV_FILE = HOME / ".config/bisq/daemon.env"
 DB_DIR = HOME / ".local/share/Bisq/btc_mainnet/db"
 CLI = "/usr/bin/bisq-cli"
 OFFER_DETAILS = str(HOME / ".local/bin/bisq-offer-details")
+WALLET_DETAILS = str(HOME / ".local/bin/bisq-wallet-details")
 API_PORT = os.getenv("BISQ_API_PORT", "9998")
 TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
@@ -31,6 +34,7 @@ REALERT_IMPROVEMENT_PCT = float(os.getenv("OPPORTUNITY_REALERT_IMPROVEMENT_PCT",
 MAX_OPPORTUNITY_ALERTS = int(os.getenv("OPPORTUNITY_MAX_ALERTS_PER_CYCLE", "3"))
 OPPORTUNITY_RESET_HOURS = int(os.getenv("OPPORTUNITY_RESET_HOURS", "24"))
 LOG = logging.getLogger("bisq-monitor")
+LAST_FEE_RATE = 0
 
 
 def load_state():
@@ -91,14 +95,237 @@ def send(state, text):
     return True
 
 
-def emit(state, kind, title, detail, telegram_text=None):
+def send_html(text):
+    telegram("sendMessage", {"chat_id": CHAT_ID, "text": text,
+                              "parse_mode": "HTML",
+                              "disable_web_page_preview": "true"})
+
+
+VALIDATION_FIELDS = ("direction", "currency", "price", "btc_range", "fiat_range",
+                     "payment", "buyer_deposit_sats", "seller_deposit_sats")
+
+
+def validation_snapshot(item):
+    return {key: item.get(key) for key in VALIDATION_FIELDS}
+
+
+def validation_token(state, offer_id):
+    direct = "v|" + offer_id
+    if len(direct.encode()) <= 64:
+        return direct
+    token = hashlib.sha256(offer_id.encode()).hexdigest()[:20]
+    state.setdefault("validation_tokens", {})[token] = offer_id
+    return "v#" + token
+
+
+def send_offer_report(state, text, item, reply_to=None):
+    data = {"chat_id": CHAT_ID, "text": text, "disable_web_page_preview": "true",
+            "reply_markup": json.dumps({"inline_keyboard": [[{
+                "text": "🔄 Validar oferta",
+                "callback_data": validation_token(state, item["id"]),
+            }]]})}
+    if reply_to:
+        data["reply_to_message_id"] = reply_to
+    message = telegram("sendMessage", data)
+    snapshots = state.setdefault("validation_snapshots", {})
+    snapshots[str(message["message_id"])] = validation_snapshot(item)
+    while len(snapshots) > 100:
+        snapshots.pop(next(iter(snapshots)))
+    return message
+
+
+def wallet_details(command, address=None):
+    args = [WALLET_DETAILS, command]
+    if address:
+        args.append(address)
+    process = subprocess.run(args, text=True, capture_output=True, timeout=25)
+    if process.returncode:
+        stderr = process.stderr.strip()
+        detail = stderr.splitlines()
+        if "wallet is locked" in stderr.lower():
+            message = "wallet is locked"
+        else:
+            message = next((line.removeprefix("Error: ") for line in reversed(detail)
+                            if "Error:" in line or "Exception" in line),
+                           detail[-1] if detail else "erro desconhecido")
+        raise RuntimeError(message)
+    line = next((line for line in reversed(process.stdout.splitlines())
+                 if line.count("\t") == 3), None)
+    if not line:
+        raise RuntimeError("resposta inválida da carteira Bisq")
+    address_value, balance, confirmations, unused = line.split("\t")
+    return {"address": address_value, "balance_sats": int(balance),
+            "confirmations": int(confirmations), "unused": unused == "true"}
+
+
+def format_btc_sats(sats):
+    return f"{sats / 1e8:.8f} BTC".replace(".", ",")
+
+
+def deposit_reply(state):
+    deposit = state.get("deposit_watch")
+    if deposit and deposit.get("status") in ("waiting", "detected"):
+        send_html("💳 <b>Depósito BTC em acompanhamento</b>\n\n"
+                  f"Toque para copiar:\n<code>{deposit['address']}</code>\n\n"
+                  "Use /deposit_status para consultar ou /deposit_cancel para cancelar.")
+        return
+    try:
+        info = wallet_details("funding")
+    except Exception as exc:
+        text = str(exc)
+        if "locked" in text.lower() or "bloque" in text.lower():
+            text = "A carteira Bisq está bloqueada. Desbloqueie-a localmente e tente /deposit novamente."
+        send_html(f"❌ <b>Não foi possível gerar o depósito</b>\n{html.escape(text)}")
+        return
+    state["deposit_watch"] = {
+        "address": info["address"], "initial_balance_sats": info["balance_sats"],
+        "last_balance_sats": info["balance_sats"], "confirmations": info["confirmations"],
+        "status": "waiting", "started_at": datetime.now(timezone.utc).isoformat(),
+        "last_error": None,
+    }
+    send_html("💳 <b>Endereço para depósito BTC</b>\n\n"
+              f"Toque para copiar:\n<code>{info['address']}</code>\n\n"
+              "Vou avisar quando o pagamento aparecer e quando for confirmado.\n"
+              "⚠️ Envie somente BTC pela rede Bitcoin.")
+
+
+def deposit_status(state):
+    deposit = state.get("deposit_watch")
+    if not deposit:
+        send_html("ℹ️ Nenhum depósito em acompanhamento. Use /deposit.")
+        return
+    labels = {"waiting": "aguardando pagamento", "detected": "aguardando confirmação",
+              "complete": "confirmado", "cancelled": "cancelado"}
+    received = max(0, deposit.get("last_balance_sats", 0) -
+                   deposit.get("initial_balance_sats", 0))
+    send_html(f"📊 <b>Depósito: {labels.get(deposit.get('status'), deposit.get('status'))}</b>\n"
+              f"Recebido: {format_btc_sats(received)}\n"
+              f"Confirmações: {deposit.get('confirmations', 0)}\n"
+              f"<code>{deposit['address']}</code>")
+
+
+def process_telegram_updates(state):
+    offset = state.get("telegram_update_offset")
+    if offset is None:
+        updates = telegram("getUpdates", {"offset": -1, "timeout": 0})
+        if updates:
+            state["telegram_update_offset"] = updates[-1]["update_id"] + 1
+        else:
+            state["telegram_update_offset"] = 0
+        return True
+    updates = telegram("getUpdates", {"offset": offset, "timeout": 0,
+                                       "allowed_updates": json.dumps(
+                                           ["message", "callback_query"])})
+    changed = False
+    for update in updates:
+        state["telegram_update_offset"] = update["update_id"] + 1
+        changed = True
+        if update.get("callback_query"):
+            process_validation_callback(state, update["callback_query"])
+            continue
+        message = update.get("message", {})
+        if str(message.get("chat", {}).get("id")) != str(CHAT_ID):
+            continue
+        command = message.get("text", "").strip().split(maxsplit=1)[0].split("@", 1)[0].lower()
+        if command == "/deposit":
+            deposit_reply(state)
+        elif command in ("/deposit_status", "/depositstatus"):
+            deposit_status(state)
+        elif command in ("/deposit_cancel", "/depositcancel"):
+            if state.get("deposit_watch"):
+                state["deposit_watch"]["status"] = "cancelled"
+            send_html("✅ Acompanhamento do depósito cancelado.")
+    return changed
+
+
+def process_validation_callback(state, callback):
+    global LAST_FEE_RATE
+    message = callback.get("message", {})
+    if str(message.get("chat", {}).get("id")) != str(CHAT_ID):
+        telegram("answerCallbackQuery", {"callback_query_id": callback["id"],
+                                          "text": "Chat não autorizado.",
+                                          "show_alert": "true"})
+        return
+    data = callback.get("data", "")
+    offer_id = (data[2:] if data.startswith("v|") else
+                state.get("validation_tokens", {}).get(data[2:])
+                if data.startswith("v#") else None)
+    telegram("answerCallbackQuery", {"callback_query_id": callback["id"],
+                                      "text": "Consultando a Bisq…"})
+    reply_to = message.get("message_id")
+    if not offer_id:
+        telegram("sendMessage", {"chat_id": CHAT_ID, "reply_to_message_id": reply_to,
+                                  "text": "❌ Não consegui identificar esta oferta."})
+        return
+    known_rates = [int(item.get("tx_fee_rate_sat_vbyte", 0))
+                   for item in state.get("opportunities", [])]
+    if known_rates:
+        LAST_FEE_RATE = max(LAST_FEE_RATE, max(known_rates))
+    try:
+        current = collect_market_offers().get(offer_id)
+    except Exception as exc:
+        telegram("sendMessage", {"chat_id": CHAT_ID, "reply_to_message_id": reply_to,
+                                  "text": f"⚠️ Erro ao validar a oferta: {str(exc)[:300]}"})
+        return
+    if not current:
+        telegram("sendMessage", {"chat_id": CHAT_ID, "reply_to_message_id": reply_to,
+                                  "text": "❌ Esta oferta não está mais disponível na Bisq."})
+        return
+    previous = state.get("validation_snapshots", {}).get(str(reply_to), {})
+    if validation_snapshot(current) == previous:
+        telegram("sendMessage", {"chat_id": CHAT_ID, "reply_to_message_id": reply_to,
+                                  "text": "✅ Oferta válida e sem alterações."})
+        return
+    prices = state.get("market_prices", {})
+    if current["currency"] not in prices:
+        telegram("sendMessage", {"chat_id": CHAT_ID, "reply_to_message_id": reply_to,
+                                  "text": "⚠️ A oferta existe, mas a cotação está indisponível."})
+        return
+    item = opportunity_for(current, prices)
+    send_offer_report(state, "🔄 OFERTA ATUALIZADA\n\n" + opportunity_report(item, prices),
+                      item, reply_to=reply_to)
+
+
+def check_deposit(state):
+    deposit = state.get("deposit_watch")
+    if not deposit or deposit.get("status") not in ("waiting", "detected"):
+        return
+    try:
+        info = wallet_details("address", deposit["address"])
+        deposit["last_error"] = None
+    except Exception as exc:
+        error = str(exc)
+        if error != deposit.get("last_error"):
+            send_html(f"⚠️ <b>Erro ao acompanhar depósito</b>\n{html.escape(error)}\n"
+                      "Tentarei novamente automaticamente.")
+            deposit["last_error"] = error
+        return
+    previous_status = deposit["status"]
+    deposit["last_balance_sats"] = info["balance_sats"]
+    deposit["confirmations"] = info["confirmations"]
+    received = info["balance_sats"] - deposit["initial_balance_sats"]
+    if received > 0 and info["confirmations"] > 0:
+        deposit["status"] = "complete"
+        send_html("✅ <b>Depósito confirmado na Bisq</b>\n"
+                  f"Valor: {format_btc_sats(received)}\n"
+                  f"Confirmações: {info['confirmations']}")
+    elif received > 0 and previous_status == "waiting":
+        deposit["status"] = "detected"
+        send_html("🟡 <b>Depósito detectado</b>\n"
+                  f"Valor: {format_btc_sats(received)}\nAguardando confirmação da rede Bitcoin.")
+
+
+def emit(state, kind, title, detail, telegram_text=None, telegram_item=None):
     events = state.setdefault("events", [])
     events.append({"time": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
                    "kind": kind, "title": title, "detail": detail})
     del events[:-100]
     if telegram_text:
         try:
-            send(state, telegram_text)
+            if telegram_item:
+                send_offer_report(state, telegram_text, telegram_item)
+            else:
+                send(state, telegram_text)
         except Exception as exc:
             LOG.error("Falha ao enviar alerta ao Telegram: %s", exc)
 
@@ -186,6 +413,7 @@ def collect_market_prices():
 
 
 def collect_market_offers():
+    global LAST_FEE_RATE
     result = {}
     for currency in OPPORTUNITY_CURRENCIES:
         for direction in ("buy", "sell"):
@@ -211,6 +439,9 @@ def collect_market_offers():
                 fiat_range = volume if min_volume == volume else f"{min_volume} - {volume}"
                 created = datetime.fromtimestamp(
                     int(created_ms) / 1000, timezone.utc).isoformat().replace("+00:00", "Z")
+                reported_fee_rate = int(fee_rate)
+                if reported_fee_rate > 0:
+                    LAST_FEE_RATE = reported_fee_rate
                 result[offer_id] = {
                     "id": offer_id, "direction": side, "currency": currency,
                     "price": price, "btc_range": btc_range, "fiat_range": fiat_range,
@@ -222,7 +453,8 @@ def collect_market_offers():
                     "maker_fee_currency": "BTC" if maker_fee_btc == "true" else "BSQ",
                     "min_taker_fee_sats": int(min_taker_fee),
                     "max_taker_fee_sats": int(max_taker_fee),
-                    "tx_fee_rate_sat_vbyte": int(fee_rate),
+                    "tx_fee_rate_sat_vbyte": (reported_fee_rate if reported_fee_rate > 0
+                                               else LAST_FEE_RATE),
                 }
     return result
 
@@ -412,7 +644,7 @@ def evaluate_opportunities(state, public_offers, market_prices, my_offers):
     for item in alertable[:MAX_OPPORTUNITY_ALERTS]:
         detail = opportunity_label(item)
         emit(state, "opportunity", "OPORTUNIDADE DE MERCADO", detail,
-             opportunity_report(item, market_prices))
+             opportunity_report(item, market_prices), telegram_item=item)
 
     for offer_id in list(alerts):
         try:
@@ -512,6 +744,8 @@ def check_once(state):
                 emit(state, "accepted" if accepted else "removed", title, offer_label(offer),
                      ("🤝" if accepted else "🗑️") + f" {title}\n{offer_label(offer)}")
 
+    check_deposit(state)
+
     state.update({"offers": offers, "healthy": healthy,
                   "market_prices": market_prices,
                   "opportunities": opportunities,
@@ -528,12 +762,22 @@ def main():
     state = load_state()
     sanitize_state(state)
     LOG.info("Monitor iniciado; intervalo=%ss; chat_id=%s", INTERVAL, CHAT_ID)
+    next_check = 0.0
     while True:
+        try:
+            if process_telegram_updates(state):
+                save_state(state)
+        except Exception:
+            LOG.exception("Falha ao consultar comandos do Telegram")
+        now = time.monotonic()
+        if now < next_check:
+            time.sleep(min(2, next_check - now))
+            continue
         try:
             check_once(state)
         except Exception:
             LOG.exception("Falha inesperada no ciclo de monitoramento")
-        time.sleep(INTERVAL)
+        next_check = time.monotonic() + INTERVAL
 
 
 if __name__ == "__main__":

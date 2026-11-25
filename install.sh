@@ -18,9 +18,10 @@ install -m 700 "$project_dir/bin/bisq-top" "$HOME/.local/bin/"
 install -m 700 "$project_dir/bin/bisqctl" "$HOME/.local/bin/"
 install -m 700 "$project_dir/bin/bisq-gui" "$HOME/.local/bin/"
 install -m 700 "$project_dir/bin/bisq-offer-details" "$HOME/.local/bin/"
+install -m 700 "$project_dir/bin/bisq-wallet-details" "$HOME/.local/bin/"
 install -d "$HOME/.local/lib/bisq-monitor"
 javac -cp '/opt/bisq-cli/lib/*:/opt/bisq-daemon/lib/*' -d "$HOME/.local/lib/bisq-monitor" \
-    "$project_dir/src/BisqOfferDetails.java"
+    "$project_dir/src/BisqOfferDetails.java" "$project_dir/src/BisqWalletDetails.java"
 install -m 644 "$project_dir/systemd/"*.service "$HOME/.config/systemd/user/"
 
 if [[ ! -f "$HOME/.config/bisq/daemon.env" ]]; then

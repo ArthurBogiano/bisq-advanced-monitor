@@ -11,9 +11,14 @@ public final class BisqOfferDetails {
             System.exit(2);
         }
         GrpcClient client = new GrpcClient(args[0], Integer.parseInt(args[1]), args[2]);
-        TxFeeRateInfo feeInfo = client.getTxFeeRate();
-        long feeRate = feeInfo.getUseCustomTxFeeRate()
-                ? feeInfo.getCustomTxFeeRate() : feeInfo.getFeeServiceRate();
+        long feeRate = -1;
+        try {
+            TxFeeRateInfo feeInfo = client.getTxFeeRate();
+            feeRate = feeInfo.getUseCustomTxFeeRate()
+                    ? feeInfo.getCustomTxFeeRate() : feeInfo.getFeeServiceRate();
+        } catch (RuntimeException ignored) {
+            // The API rate-limits this method.  The monitor reuses its last valid rate.
+        }
         for (OfferInfo offer : client.getOffers(args[3], args[4])) {
             long minTakerFee = CoinUtil.getTakerFee(true, Coin.valueOf(offer.getMinAmount())).value;
             long maxTakerFee = CoinUtil.getTakerFee(true, Coin.valueOf(offer.getAmount())).value;

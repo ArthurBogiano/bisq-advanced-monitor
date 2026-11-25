@@ -65,6 +65,9 @@ antes de poder gerar um novo alerta.
 O alerta no Telegram é um resumo operacional: ação, vantagem, preço da oferta e
 de mercado, quantidade, valor, método de pagamento e ID. Relatórios BRL permanecem somente em reais;
 relatórios EUR acrescentam as conversões BTC/BRL, EUR/BRL e BRL/EUR.
+Cada relatório inclui o botão `Validar oferta`, que consulta novamente o livro da
+Bisq e responde à mensagem original informando se ela continua igual, foi removida
+ou mudou; nesse último caso, o bot envia o relatório atualizado.
 Os relatórios incluem o principal, depósito, taxa do taker, reserva de mineração,
 saldo BTC necessário com seu equivalente em reais e lucro/economia após essas
 taxas. Ofertas EUR também exibem o saldo equivalente em euros. Ofertas BRL mostram
@@ -72,6 +75,16 @@ somente BTC e reais; valores em EUR aparecem apenas quando a oferta é EUR.
 O coletor protobuf lê os depósitos de comprador e vendedor diretamente da API,
 calcula o percentual aplicável ao taker e estima o BTC mínimo na carteira. A
 taxa do taker e a taxa de mineração continuam sendo confirmadas pela Bisq no aceite.
+
+### Depósitos pelo Telegram
+
+- `/deposit`: envia um endereço BTC copiável da carteira Bisq e inicia o acompanhamento;
+- `/deposit_status`: mostra valor recebido, confirmações e estado atual;
+- `/deposit_cancel`: encerra o acompanhamento atual.
+
+O bot avisa quando a transação aparece, quando recebe confirmação e quando a
+API da carteira apresenta erro. Os comandos são aceitos somente no grupo configurado.
+A carteira deve estar desbloqueada localmente; senhas nunca são recebidas pelo Telegram.
 
 Proteja os arquivos e inicie os serviços:
 
