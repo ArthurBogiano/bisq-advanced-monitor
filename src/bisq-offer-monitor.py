@@ -245,14 +245,27 @@ def opportunity_report(item, market_prices):
     btc_eur = number(market_prices["EUR"])
     eur_brl = btc_brl / btc_eur
     currency = item["currency"]
-    other_currency = "EUR" if currency == "BRL" else "BRL"
-    other_offer_price = (item["offer_price"] / eur_brl if currency == "BRL"
-                         else item["offer_price"] * eur_brl)
     native_range = item.get("fiat_range") or "não informado"
-    converted_range = convert_fiat_range(native_range, currency, eur_brl)
     maker_side = "COMPRA BTC" if item["direction"] == "BUY" else "VENDA BTC"
     created = item.get("created", "não informada").replace("T", " ").replace("Z", " UTC")
     detected = datetime.now(timezone.utc).astimezone().strftime("%d/%m/%Y %H:%M:%S %Z")
+    price_lines = (
+        f"🏷️ Oferta: {format_money(item['offer_price'], 'BRL')} / BTC\n"
+        f"📊 Mercado BTC/BRL: {format_money(btc_brl, 'BRL')}\n"
+    )
+    range_lines = f"💵 Valor em {currency}: {native_range}\n"
+    if currency == "EUR":
+        offer_brl = item["offer_price"] * eur_brl
+        converted_range = convert_fiat_range(native_range, currency, eur_brl)
+        price_lines = (
+            f"🏷️ Oferta: {format_money(item['offer_price'], 'EUR')} / BTC\n"
+            f"🔄 Oferta em reais: {format_money(offer_brl, 'BRL')} / BTC\n"
+            f"📊 Mercado BTC/EUR: {format_money(btc_eur, 'EUR')}\n"
+            f"📊 Mercado BTC/BRL: {format_money(btc_brl, 'BRL')}\n"
+            f"💱 EUR/BRL: R$ {format_number(eur_brl, 4)} por € 1\n"
+            f"💱 BRL/EUR: € {format_number(1 / eur_brl, 4)} por R$ 1\n"
+        )
+        range_lines += f"🔁 Equivalente em BRL: {converted_range or 'não informado'}\n"
     return (
         "🚀 RELATÓRIO DE OPORTUNIDADE — BISQ\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
@@ -261,16 +274,10 @@ def opportunity_report(item, market_prices):
         f"📋 Ordem do anunciante: {maker_side}\n"
         f"🌍 Mercado: {currency}\n\n"
         "💰 PREÇOS\n"
-        f"🏷️ Oferta: {format_money(item['offer_price'], currency)} / BTC\n"
-        f"🔄 Oferta convertida: {format_money(other_offer_price, other_currency)} / BTC\n"
-        f"📊 Mercado BTC/BRL: {format_money(btc_brl, 'BRL')}\n"
-        f"📊 Mercado BTC/EUR: {format_money(btc_eur, 'EUR')}\n"
-        f"💱 EUR/BRL: R$ {format_number(eur_brl, 4)} por € 1\n"
-        f"💱 BRL/EUR: € {format_number(1 / eur_brl, 4)} por R$ 1\n\n"
+        f"{price_lines}\n"
         "📦 LIMITES DA ORDEM\n"
         f"₿ Quantidade: {item.get('btc_range', 'não informada')} BTC\n"
-        f"💵 Valor em {currency}: {native_range}\n"
-        f"🔁 Equivalente em {other_currency}: {converted_range or 'não informado'}\n\n"
+        f"{range_lines}\n"
         "🏦 DETALHES\n"
         f"💳 Pagamento: {item.get('payment', 'não informado')}\n"
         f"🕒 Criada em: {created}\n"

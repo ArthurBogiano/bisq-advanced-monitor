@@ -64,8 +64,8 @@ antes de poder gerar um novo alerta.
 
 O alerta no Telegram é enviado como relatório: ação sugerida, vantagem, lado da
 ordem, preço ofertado e de mercado, limites em BTC e moeda fiduciária, método de
-pagamento, horário, ID completo e conversões instantâneas BTC/BRL, BTC/EUR,
-EUR/BRL e BRL/EUR.
+pagamento, horário e ID completo. Relatórios BRL permanecem somente em reais;
+relatórios EUR acrescentam as conversões BTC/BRL, EUR/BRL e BRL/EUR.
 
 Proteja os arquivos e inicie os serviços:
 
