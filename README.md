@@ -115,7 +115,10 @@ bisq-top
 ```
 
 - `q`: sair;
-- `↑` e `↓`: navegar pelo histórico de alertas.
+- `Tab`: alternar entre oportunidades e histórico de alertas;
+- `↑`/`↓` ou `j`/`k`: navegar pela seção selecionada;
+- `Enter`: abrir o relatório completo da oportunidade no terminal;
+- `Esc` ou `Enter`: voltar do relatório detalhado.
 
 Para consultar a API diretamente:
 
