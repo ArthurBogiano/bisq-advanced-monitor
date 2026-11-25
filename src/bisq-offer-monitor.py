@@ -199,11 +199,12 @@ def collect_market_offers():
                                    f"detalhes de ofertas falharam ({process.returncode})")
             for line in process.stdout.splitlines():
                 fields = line.split("\t")
-                if len(fields) != 14:
+                if len(fields) != 17:
                     continue
                 (offer_id, side, price, min_amount, amount, min_volume, volume,
                  payment, buyer_deposit, seller_deposit, tx_fee, maker_fee,
-                 maker_fee_btc, created_ms) = fields
+                 maker_fee_btc, created_ms, min_taker_fee, max_taker_fee,
+                 fee_rate) = fields
                 minimum, maximum = int(min_amount) / 1e8, int(amount) / 1e8
                 btc_range = (f"{maximum:.8f}" if minimum == maximum else
                              f"{minimum:.8f} - {maximum:.8f}")
@@ -219,6 +220,9 @@ def collect_market_offers():
                     "seller_deposit_sats": int(seller_deposit),
                     "tx_fee_sats": int(tx_fee), "maker_fee_sats": int(maker_fee),
                     "maker_fee_currency": "BTC" if maker_fee_btc == "true" else "BSQ",
+                    "min_taker_fee_sats": int(min_taker_fee),
+                    "max_taker_fee_sats": int(max_taker_fee),
+                    "tx_fee_rate_sat_vbyte": int(fee_rate),
                 }
     return result
 
@@ -305,9 +309,21 @@ def opportunity_report(item, market_prices):
                       for value in gross_native)
     deposit_pct = float(item.get("taker_deposit_pct", 0))
     deposit_btc = tuple(amount * deposit_pct / 100 for amount in btc_range)
-    wallet_btc = tuple(amount + deposit for amount, deposit in zip(btc_range, deposit_btc))
+    mining_sats = int(item.get("tx_fee_rate_sat_vbyte", 0)) * 233
+    taker_fee_sats = (int(item.get("min_taker_fee_sats", 0)),
+                      int(item.get("max_taker_fee_sats", 0)))
+    total_fee_btc = tuple((fee + mining_sats) / 1e8 for fee in taker_fee_sats)
+    wallet_btc = tuple(amount + deposit + fee for amount, deposit, fee in
+                       zip(btc_range, deposit_btc, total_fee_btc))
     if item["action"] == "COMPRAR BTC":
-        wallet_btc = deposit_btc
+        wallet_btc = tuple(deposit + fee for deposit, fee in
+                           zip(deposit_btc, total_fee_btc))
+    net_native = tuple(gross - fee * item["market_price"] for gross, fee in
+                       zip(gross_native, total_fee_btc))
+    net_brl = tuple(value * (eur_brl if currency == "EUR" else 1)
+                    for value in net_native)
+    net_eur = tuple(value / (eur_brl if currency == "BRL" else 1)
+                    for value in net_native)
     maker_side = "COMPRA BTC" if item["direction"] == "BUY" else "VENDA BTC"
     created = item.get("created", "não informada").replace("T", " ").replace("Z", " UTC")
     detected = datetime.now(timezone.utc).astimezone().strftime("%d/%m/%Y %H:%M:%S %Z")
@@ -332,6 +348,23 @@ def opportunity_report(item, market_prices):
                 if item["action"] == "VENDER BTC" else
                 format_range(capital_brl if currency == "BRL" else capital_eur,
                              lambda value: format_money(value, currency)))
+    capital_lines = (
+        f"🇧🇷 Capital da negociação: {format_range(capital_brl, lambda value: format_money(value, 'BRL'))}\n"
+    )
+    profit_lines = (
+        f"📈 Lucro/economia bruta: {format_range(gross_brl, lambda value: format_money(value, 'BRL'))}\n"
+        f"✅ Resultado após taxas BTC estimadas: {format_range(net_brl, lambda value: format_money(value, 'BRL'))}\n"
+    )
+    if currency == "EUR":
+        capital_lines = (
+            f"🇪🇺 Capital da negociação: {format_range(capital_eur, lambda value: format_money(value, 'EUR'))}\n"
+            f"🇧🇷 Equivalente em reais: {format_range(capital_brl, lambda value: format_money(value, 'BRL'))}\n"
+        )
+        profit_lines = (
+            f"📈 Lucro/economia bruta: {format_range(gross_eur, lambda value: format_money(value, 'EUR'))}\n"
+            f"✅ Resultado após taxas BTC estimadas: {format_range(net_eur, lambda value: format_money(value, 'EUR'))}\n"
+            f"🇧🇷 Resultado estimado em reais: {format_range(net_brl, lambda value: format_money(value, 'BRL'))}\n"
+        )
     return (
         "🚀 RELATÓRIO DE OPORTUNIDADE — BISQ\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
@@ -346,16 +379,14 @@ def opportunity_report(item, market_prices):
         f"{range_lines}\n"
         "💼 CAPITAL E RESULTADO ESTIMADOS\n"
         f"₿ BTC negociado: {format_range(btc_range, lambda value: format_number(value, 8))} BTC\n"
-        f"🇧🇷 Capital equivalente: {format_range(capital_brl, lambda value: format_money(value, 'BRL'))}\n"
-        f"🇪🇺 Capital equivalente: {format_range(capital_eur, lambda value: format_money(value, 'EUR'))}\n"
+        f"{capital_lines}"
         f"👛 Principal necessário: {required}\n"
         f"🔐 Depósito de segurança: {format_number(deposit_pct)}% = "
         f"{format_range(deposit_btc, lambda value: format_number(value, 8))} BTC\n"
-        f"👛 BTC mínimo na carteira: {format_range(wallet_btc, lambda value: format_number(value, 8))} BTC + taxa do taker/mineração\n"
-        f"📈 Lucro/economia bruta em BRL: {format_range(gross_brl, lambda value: format_money(value, 'BRL'))}\n"
-        f"📈 Lucro/economia bruta em EUR: {format_range(gross_eur, lambda value: format_money(value, 'EUR'))}\n"
-        "🧾 Resultado líquido: valores acima menos taxa de negociação, mineração e custos bancários\n"
-        f"ℹ️ Taxa registrada da criação da oferta: {item.get('maker_fee_sats', 0)} sats em {item.get('maker_fee_currency', 'BTC')} (é do maker, não sua taxa)\n\n"
+        f"🧾 Taxa do taker + mineração estimada: {format_range(total_fee_btc, lambda value: format_number(value, 8))} BTC\n"
+        f"👛 BTC necessário na carteira: {format_range(wallet_btc, lambda value: format_number(value, 8))} BTC\n"
+        f"{profit_lines}"
+        "ℹ️ Depósito retorna ao concluir a negociação; custos bancários não estão incluídos\n\n"
         "🏦 DETALHES\n"
         f"💳 Pagamento: {item.get('payment', 'não informado')}\n"
         f"🕒 Criada em: {created}\n"

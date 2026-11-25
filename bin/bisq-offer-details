@@ -4,5 +4,5 @@ password_file="$HOME/.config/bisq/daemon.env"
 BISQ_API_PORT=9998
 . "$password_file"
 export JAVA_HOME=/opt/bisq-java
-exec "$JAVA_HOME/bin/java" -cp "/opt/bisq-cli/lib/*:$HOME/.local/lib/bisq-monitor" \
+exec "$JAVA_HOME/bin/java" -cp "/opt/bisq-cli/lib/*:/opt/bisq-daemon/lib/*:$HOME/.local/lib/bisq-monitor" \
   BisqOfferDetails 127.0.0.1 "${BISQ_API_PORT:-9998}" "$BISQ_API_PASSWORD" "$@"

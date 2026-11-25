@@ -66,9 +66,9 @@ O alerta no Telegram é enviado como relatório: ação sugerida, vantagem, lado
 ordem, preço ofertado e de mercado, limites em BTC e moeda fiduciária, método de
 pagamento, horário e ID completo. Relatórios BRL permanecem somente em reais;
 relatórios EUR acrescentam as conversões BTC/BRL, EUR/BRL e BRL/EUR.
-Todos os relatórios incluem ainda o capital principal estimado em BTC, BRL e
-EUR e o lucro/economia bruta contra o preço de mercado. O valor líquido depende
-das taxas e do depósito de segurança exibidos pela Bisq antes da confirmação.
+Os relatórios incluem o principal, depósito, taxa do taker, reserva de mineração,
+saldo BTC necessário e lucro/economia após essas taxas. Ofertas BRL mostram
+somente BTC e reais; valores em EUR aparecem apenas quando a oferta é EUR.
 O coletor protobuf lê os depósitos de comprador e vendedor diretamente da API,
 calcula o percentual aplicável ao taker e estima o BTC mínimo na carteira. A
 taxa do taker e a taxa de mineração continuam sendo confirmadas pela Bisq no aceite.

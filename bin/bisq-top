@@ -63,8 +63,15 @@ def opportunity_details(item, prices):
     gross_eur=tuple(value/(eur_brl if currency=="BRL" else 1) for value in gross_native)
     deposit_pct=float(item.get("taker_deposit_pct",0))
     deposit_btc=tuple(value*deposit_pct/100 for value in amounts)
-    wallet_btc=deposit_btc if item.get("action")=="COMPRAR BTC" else tuple(
-        value+deposit for value,deposit in zip(amounts,deposit_btc))
+    mining_sats=int(item.get("tx_fee_rate_sat_vbyte",0))*233
+    taker_fees=(int(item.get("min_taker_fee_sats",0)),int(item.get("max_taker_fee_sats",0)))
+    fee_btc=tuple((value+mining_sats)/1e8 for value in taker_fees)
+    wallet_btc=(tuple(deposit+fee for deposit,fee in zip(deposit_btc,fee_btc))
+                if item.get("action")=="COMPRAR BTC" else
+                tuple(value+deposit+fee for value,deposit,fee in zip(amounts,deposit_btc,fee_btc)))
+    net_native=tuple(gross-fee*market_price for gross,fee in zip(gross_native,fee_btc))
+    net_brl=tuple(value*(eur_brl if currency=="EUR" else 1) for value in net_native)
+    net_eur=tuple(value/(eur_brl if currency=="BRL" else 1) for value in net_native)
     lines=[
         "RELATÓRIO DE OPORTUNIDADE — BISQ",
         "",
@@ -102,16 +109,32 @@ def opportunity_details(item, prices):
         "",
         "💼 CAPITAL E RESULTADO ESTIMADOS",
         f"₿ BTC negociado: {render_range(amounts,lambda value:f'{value:.8f}')} BTC",
-        f"🇧🇷 Capital equivalente: {render_range(capital_brl,lambda value:money(value,'BRL'))}",
-        f"🇪🇺 Capital equivalente: {render_range(capital_eur,lambda value:money(value,'EUR'))}",
+    ]
+    if currency=="EUR":
+        lines += [
+            f"🇪🇺 Capital da negociação: {render_range(capital_eur,lambda value:money(value,'EUR'))}",
+            f"🇧🇷 Equivalente em reais: {render_range(capital_brl,lambda value:money(value,'BRL'))}",
+        ]
+    else:
+        lines += [f"🇧🇷 Capital da negociação: {render_range(capital_brl,lambda value:money(value,'BRL'))}"]
+    lines += [
         f"👛 Principal necessário: {required}",
         f"🔐 Depósito de segurança: {deposit_pct:.2f}% = {render_range(deposit_btc,lambda value:f'{value:.8f}')} BTC",
-        f"👛 BTC mínimo na carteira: {render_range(wallet_btc,lambda value:f'{value:.8f}')} BTC + taxas",
-        f"📈 Lucro/economia bruta BRL: {render_range(gross_brl,lambda value:money(value,'BRL'))}",
-        f"📈 Lucro/economia bruta EUR: {render_range(gross_eur,lambda value:money(value,'EUR'))}",
-        "🧾 Líquido: bruto menos taxas de negociação, mineração e custos bancários",
-        f"ℹ Taxa do maker registrada: {item.get('maker_fee_sats',0)} sats em {item.get('maker_fee_currency','BTC')}",
+        f"🧾 Taker + mineração: {render_range(fee_btc,lambda value:f'{value:.8f}')} BTC",
+        f"👛 BTC necessário na carteira: {render_range(wallet_btc,lambda value:f'{value:.8f}')} BTC",
     ]
+    if currency=="EUR":
+        lines += [
+            f"📈 Lucro/economia bruta: {render_range(gross_eur,lambda value:money(value,'EUR'))}",
+            f"✅ Após taxas BTC estimadas: {render_range(net_eur,lambda value:money(value,'EUR'))}",
+            f"🇧🇷 Resultado em reais: {render_range(net_brl,lambda value:money(value,'BRL'))}",
+        ]
+    else:
+        lines += [
+            f"📈 Lucro/economia bruta: {render_range(gross_brl,lambda value:money(value,'BRL'))}",
+            f"✅ Após taxas BTC estimadas: {render_range(net_brl,lambda value:money(value,'BRL'))}",
+        ]
+    lines += ["ℹ Depósito retorna ao concluir; custos bancários não incluídos"]
     lines += [
         "",
         "🏦 DETALHES",
